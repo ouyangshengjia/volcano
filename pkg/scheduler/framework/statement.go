@@ -391,11 +391,13 @@ func (s *Statement) unallocate(task *api.TaskInfo) error {
 }
 
 // Discard operation for evict, pipeline and allocate
-func (s *Statement) Discard() {
+func (s *Statement) Discard(recordTxContext bool) {
 	klog.V(3).Info("Discarding operations ...")
 	for i := len(s.operations) - 1; i >= 0; i-- {
 		op := s.operations[i]
-		op.task.GenerateLastTxContext()
+		if recordTxContext {
+			op.task.GenerateLastTxContext()
+		}
 		switch op.name {
 		case Evict:
 			err := s.unevict(op.task)

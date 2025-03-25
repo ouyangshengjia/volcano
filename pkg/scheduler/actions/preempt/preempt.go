@@ -157,7 +157,7 @@ func (pmpt *Action) Execute(ssn *framework.Session) {
 			if ssn.JobPipelined(preemptorJob) {
 				stmt.Commit()
 			} else {
-				stmt.Discard()
+				stmt.Discard(false)
 				continue
 			}
 

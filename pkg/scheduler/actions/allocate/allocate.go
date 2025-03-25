@@ -337,7 +337,7 @@ func (alloc *Action) allocateResourcesForTasks(tasks *util.PriorityQueue, job *a
 		stmt.Commit()
 	} else {
 		if !ssn.JobPipelined(job) {
-			stmt.Discard()
+			stmt.Discard(true)
 		}
 	}
 }
