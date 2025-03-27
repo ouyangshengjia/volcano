@@ -177,6 +177,7 @@ func (pmpt *Action) Execute(ssn *framework.Session) {
 				}
 				preemptorTasks[job.UID].Push(task)
 			}
+			stmt := framework.NewStatement(ssn)
 			for {
 				if _, found := preemptorTasks[job.UID]; !found {
 					break
@@ -188,7 +189,6 @@ func (pmpt *Action) Execute(ssn *framework.Session) {
 
 				preemptor := preemptorTasks[job.UID].Pop().(*api.TaskInfo)
 
-				stmt := framework.NewStatement(ssn)
 				assigned, err := pmpt.preempt(ssn, stmt, preemptor, func(task *api.TaskInfo) bool {
 					// Ignore non running task.
 					if !api.PreemptableStatus(task.Status) {
@@ -209,12 +209,19 @@ func (pmpt *Action) Execute(ssn *framework.Session) {
 				if err != nil {
 					klog.V(3).Infof("Preemptor <%s/%s> failed to preempt Task , err: %s", preemptor.Namespace, preemptor.Name, err)
 				}
-				stmt.Commit()
 
 				// If no preemption, next job.
 				if !assigned {
 					break
 				}
+			}
+
+			// Commit changes only if job is pipelined
+			if ssn.JobPipelined(job) {
+				stmt.Commit()
+			} else {
+				stmt.Discard(false)
+				continue
 			}
 		}
 	}
