@@ -352,6 +352,8 @@ type JobInfo struct {
 	JobFitErrors   string
 	NodesFitErrors map[TaskID]*FitErrors
 
+	PodBunchInfos map[BunchID]*PodBunchInfo
+
 	// All tasks of the Job.
 	TaskStatusIndex       map[TaskStatus]tasksMap
 	Tasks                 tasksMap

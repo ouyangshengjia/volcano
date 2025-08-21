@@ -26,6 +26,7 @@ import (
 	k8sframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"volcano.sh/apis/pkg/apis/scheduling"
+
 	"volcano.sh/volcano/pkg/controllers/job/helpers"
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/util"
@@ -546,6 +547,22 @@ func (ssn *Session) ReservedNodes() {
 			fn()
 		}
 	}
+}
+
+func (ssn *Session) PodBunchOrderFn(l, r interface{}) bool {
+	return false // todo
+}
+
+// HyperNodeGradientForJobFn group hyperNodes into several gradients,
+// and discard hyperNodes that unmatched the job topology requirements.
+func (ssn *Session) HyperNodeGradientForJobFn(job *api.JobInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+	return nil // todo
+}
+
+// HyperNodeGradientForPodBunchFn group hyperNodes into several gradients,
+// and discard hyperNodes that unmatched the podBunch topology requirements.
+func (ssn *Session) HyperNodeGradientForPodBunchFn(podBunch *api.PodBunchInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+	return nil // todo
 }
 
 // JobOrderFn invoke joborder function of the plugins

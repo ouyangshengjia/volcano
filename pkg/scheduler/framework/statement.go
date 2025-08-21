@@ -505,3 +505,17 @@ func (s *Statement) outputOperations(msg string, level klog.Level) {
 	}
 	klog.V(level).Info(msg, buffer)
 }
+
+func MergeOperations(stmts ...*Statement) *Statement {
+	stmtTmp := &Statement{}
+	for _, stmt := range stmts {
+		for _, op := range stmt.operations {
+			stmtTmp.operations = append(stmtTmp.operations, operation{
+				name:   op.name,
+				task:   op.task.Clone(),
+				reason: op.reason,
+			})
+		}
+	}
+	return stmtTmp
+}

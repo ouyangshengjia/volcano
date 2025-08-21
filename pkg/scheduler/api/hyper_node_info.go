@@ -34,6 +34,10 @@ import (
 	topologyv1alpha1 "volcano.sh/apis/pkg/apis/topology/v1alpha1"
 )
 
+const (
+	ClusterRootHyperNode = "__ClusterRootHyperNode__"
+)
+
 // HyperNodesInfo stores and manages the hierarchical structure of HyperNodes.
 type HyperNodesInfo struct {
 	sync.Mutex
