@@ -26,6 +26,7 @@ import (
 	k8sframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"volcano.sh/apis/pkg/apis/scheduling"
+
 	"volcano.sh/volcano/pkg/controllers/job/helpers"
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/util"
@@ -341,6 +342,14 @@ func (ssn *Session) Allocatable(queue *api.QueueInfo, candidate *api.TaskInfo) b
 	return true
 }
 
+func (ssn *Session) PodBunchReady(obj interface{}) bool {
+	return true // todo
+}
+
+func (ssn *Session) PodBunchPipelined(obj interface{}) bool {
+	return true // todo
+}
+
 // JobReady invoke jobready function of the plugins
 func (ssn *Session) JobReady(obj interface{}) bool {
 	for _, tier := range ssn.Tiers {
@@ -546,6 +555,10 @@ func (ssn *Session) ReservedNodes() {
 			fn()
 		}
 	}
+}
+
+func (ssn *Session) PodBunchOrderFn(l, r interface{}) bool {
+	return false // todo
 }
 
 // JobOrderFn invoke joborder function of the plugins
@@ -891,7 +904,7 @@ func (ssn *Session) NodeOrderMapFn(task *api.TaskInfo, node *api.NodeInfo) (map[
 }
 
 // HyperNodeOrderMapFn invoke hyperNode order function of the plugins
-func (ssn *Session) HyperNodeOrderMapFn(job *api.JobInfo, hyperNodes map[string][]*api.NodeInfo) (map[string]map[string]float64, error) {
+func (ssn *Session) HyperNodeOrderMapFn(podBunch *api.PodBunchInfo, hyperNodes map[string][]*api.NodeInfo) (map[string]map[string]float64, error) {
 	nodeGroupScore := make(map[string]map[string]float64)
 	for _, tier := range ssn.Tiers {
 		for _, plugin := range tier.Plugins {
@@ -902,7 +915,7 @@ func (ssn *Session) HyperNodeOrderMapFn(job *api.JobInfo, hyperNodes map[string]
 			if !found {
 				continue
 			}
-			scoreTmp, err := pfn(job, hyperNodes)
+			scoreTmp, err := pfn(podBunch, hyperNodes)
 			if err != nil {
 				return nodeGroupScore, err
 			}
@@ -934,6 +947,18 @@ func (ssn *Session) NodeOrderReduceFn(task *api.TaskInfo, pluginNodeScoreMap map
 		}
 	}
 	return nodeScoreMap, nil
+}
+
+// HyperNodeGradientForJobFn group hyperNodes into several gradients,
+// and discard hyperNodes that unmatched the job topology requirements.
+func (ssn *Session) HyperNodeGradientForJobFn(job *api.JobInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+	return nil // todo
+}
+
+// HyperNodeGradientForPodBunchFn group hyperNodes into several gradients,
+// and discard hyperNodes that unmatched the podBunch topology requirements.
+func (ssn *Session) HyperNodeGradientForPodBunchFn(podBunch *api.PodBunchInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+	return nil // todo
 }
 
 // BuildVictimsPriorityQueue returns a priority queue with victims sorted by:

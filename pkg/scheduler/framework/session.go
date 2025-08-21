@@ -52,6 +52,10 @@ import (
 	"volcano.sh/volcano/pkg/scheduler/util"
 )
 
+const (
+	ClusterRootHyperNode = "__ClusterRootHyperNode__"
+)
+
 // Session information for the current session
 type Session struct {
 	UID types.UID

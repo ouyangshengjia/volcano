@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -111,8 +112,9 @@ func (info *TopologyInfo) Clone() *TopologyInfo {
 
 // TaskInfo will have all infos about the task
 type TaskInfo struct {
-	UID TaskID
-	Job JobID
+	UID      TaskID
+	Job      JobID
+	PodBunch BunchID
 
 	Name      string
 	Namespace string
@@ -328,7 +330,7 @@ func (ti TaskInfo) String() string {
 // JobID is the type of JobInfo's ID.
 type JobID types.UID
 
-type tasksMap map[TaskID]*TaskInfo
+type TasksMap map[TaskID]*TaskInfo
 
 // NodeResourceMap stores resource in a node
 type NodeResourceMap map[string]*Resource
@@ -352,9 +354,12 @@ type JobInfo struct {
 	JobFitErrors   string
 	NodesFitErrors map[TaskID]*FitErrors
 
+	AllocatedHyperNode string
+	PodBunches         map[BunchID]*PodBunchInfo
+
 	// All tasks of the Job.
-	TaskStatusIndex       map[TaskStatus]tasksMap
-	Tasks                 tasksMap
+	TaskStatusIndex       map[TaskStatus]TasksMap
+	Tasks                 TasksMap
 	TaskMinAvailable      map[string]int32 // key is value of "volcano.sh/task-spec", value is number
 	TaskMinAvailableTotal int32
 
@@ -384,8 +389,8 @@ func NewJobInfo(uid JobID, tasks ...*TaskInfo) *JobInfo {
 		NodesFitErrors:   make(map[TaskID]*FitErrors),
 		Allocated:        EmptyResource(),
 		TotalRequest:     EmptyResource(),
-		TaskStatusIndex:  map[TaskStatus]tasksMap{},
-		Tasks:            tasksMap{},
+		TaskStatusIndex:  map[TaskStatus]TasksMap{},
+		Tasks:            TasksMap{},
 		TaskMinAvailable: map[string]int32{},
 	}
 
@@ -589,7 +594,7 @@ func (ji *JobInfo) GetElasticResources() *Resource {
 
 func (ji *JobInfo) addTaskIndex(ti *TaskInfo) {
 	if _, found := ji.TaskStatusIndex[ti.Status]; !found {
-		ji.TaskStatusIndex[ti.Status] = tasksMap{}
+		ji.TaskStatusIndex[ti.Status] = TasksMap{}
 	}
 	ji.TaskStatusIndex[ti.Status][ti.UID] = ti
 }
@@ -670,10 +675,10 @@ func (ji *JobInfo) Clone() *JobInfo {
 
 		PodGroup: ji.PodGroup.Clone(),
 
-		TaskStatusIndex:       map[TaskStatus]tasksMap{},
+		TaskStatusIndex:       map[TaskStatus]TasksMap{},
 		TaskMinAvailable:      make(map[string]int32, len(ji.TaskMinAvailable)),
 		TaskMinAvailableTotal: ji.TaskMinAvailableTotal,
-		Tasks:                 tasksMap{},
+		Tasks:                 TasksMap{},
 		Preemptable:           ji.Preemptable,
 		RevocableZone:         ji.RevocableZone,
 		Budget:                ji.Budget.Clone(),
@@ -1078,4 +1083,12 @@ func (ji *JobInfo) IsSoftTopologyMode() bool {
 func (ji *JobInfo) ResetFitErr() {
 	ji.JobFitErrors = ""
 	ji.NodesFitErrors = make(map[TaskID]*FitErrors)
+}
+
+// ResetPodBunchFitErr will set podBunch's node fit err to nil.
+func (ji *JobInfo) ResetPodBunchFitErr(podBunch *PodBunchInfo) {
+	maps.DeleteFunc(ji.NodesFitErrors, func(taskID TaskID, _ *FitErrors) bool {
+		_, found := podBunch.Tasks[taskID]
+		return found
+	})
 }
