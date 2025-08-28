@@ -183,6 +183,16 @@ func (ssn *Session) AddSimulatePredicateFn(name string, fn api.SimulatePredicate
 	ssn.simulatePredicateFns[name] = fn
 }
 
+// AddPodBunchReadyFn add PodBunchReady function
+func (ssn *Session) AddPodBunchReadyFn(name string, vf api.ValidateFn) {
+	ssn.podBunchReadyFns[name] = vf
+}
+
+// AddPodBunchPipelinedFn add PodBunchPipelined function
+func (ssn *Session) AddPodBunchPipelinedFn(name string, vf api.VoteFn) {
+	ssn.podBunchPipelinedFns[name] = vf
+}
+
 // Reclaimable invoke reclaimable function of the plugins
 func (ssn *Session) Reclaimable(reclaimer *api.TaskInfo, reclaimees []*api.TaskInfo) []*api.TaskInfo {
 	var victims []*api.TaskInfo
@@ -343,11 +353,53 @@ func (ssn *Session) Allocatable(queue *api.QueueInfo, candidate *api.TaskInfo) b
 }
 
 func (ssn *Session) PodBunchReady(obj interface{}) bool {
-	return true // todo
+	for _, tier := range ssn.Tiers {
+		for _, plugin := range tier.Plugins {
+			if !isEnabled(plugin.EnabledPodBunchReady) {
+				continue
+			}
+			fn, found := ssn.podBunchReadyFns[plugin.Name]
+			if !found {
+				continue
+			}
+
+			if !fn(obj) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func (ssn *Session) PodBunchPipelined(obj interface{}) bool {
-	return true // todo
+	var hasFound bool
+	for _, tier := range ssn.Tiers {
+		for _, plugin := range tier.Plugins {
+			if !isEnabled(plugin.EnabledPodBunchPipelined) {
+				continue
+			}
+			fn, found := ssn.podBunchPipelinedFns[plugin.Name]
+			if !found {
+				continue
+			}
+
+			res := fn(obj)
+			if res < 0 {
+				return false
+			}
+			if res > 0 {
+				hasFound = true
+			}
+		}
+		// if plugin exists that votes permit, meanwhile other plugin votes abstention,
+		// permit job to be pipelined, do not check next tier
+		if hasFound {
+			return true
+		}
+	}
+
+	return true
 }
 
 // JobReady invoke jobready function of the plugins

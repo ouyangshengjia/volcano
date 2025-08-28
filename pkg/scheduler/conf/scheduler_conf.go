@@ -94,6 +94,10 @@ type PluginOption struct {
 	EnabledAllocatable *bool `yaml:"enabledAllocatable"`
 	// EnabledHyperNodeOrder defines whether hyperNode is enabled
 	EnabledHyperNodeOrder *bool `yaml:"enabledHyperNodeOrder"`
+	// EnabledPodBunchReady defines whether podBunchReadyFn is enabled
+	EnabledPodBunchReady *bool `yaml:"enabledPodBunchReady"`
+	// EnabledPodBunchPipelined defines whether podBunchPipelinedFn is enabled
+	EnabledPodBunchPipelined *bool `yaml:"enabledPodBunchPipelined"`
 	// Arguments defines the different arguments that can be given to different plugins
 	Arguments map[string]interface{} `yaml:"arguments"`
 }
