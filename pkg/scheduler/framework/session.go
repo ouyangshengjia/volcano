@@ -137,6 +137,7 @@ type Session struct {
 	simulateAllocatableFns map[string]api.SimulateAllocatableFn
 	podBunchReadyFns       map[string]api.ValidateFn
 	podBunchPipelinedFns   map[string]api.VoteFn
+	podBunchOrderFns       map[string]api.CompareFn
 
 	// cycleStatesMap is used to temporarily store the scheduling status of each pod, its life cycle is same as Session.
 	// Because state needs to be passed between different extension points (not only used in PreFilter and Filter),
@@ -203,6 +204,7 @@ func openSession(cache cache.Cache) *Session {
 		simulateAllocatableFns: map[string]api.SimulateAllocatableFn{},
 		podBunchReadyFns:       map[string]api.ValidateFn{},
 		podBunchPipelinedFns:   map[string]api.VoteFn{},
+		podBunchOrderFns:       map[string]api.CompareFn{},
 	}
 
 	snapshot := cache.Snapshot()

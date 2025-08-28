@@ -11,6 +11,8 @@ type PodBunchInfo struct {
 	UID BunchID
 	Job JobID
 
+	Priority int32 // determined by the highest priority task in the podBunch
+
 	Tasks           map[TaskID]*TaskInfo
 	TaskStatusIndex map[TaskStatus]TasksMap
 

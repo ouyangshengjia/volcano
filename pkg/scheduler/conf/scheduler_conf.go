@@ -98,6 +98,8 @@ type PluginOption struct {
 	EnabledPodBunchReady *bool `yaml:"enabledPodBunchReady"`
 	// EnabledPodBunchPipelined defines whether podBunchPipelinedFn is enabled
 	EnabledPodBunchPipelined *bool `yaml:"enabledPodBunchPipelined"`
+	// EnabledPodBunchOrder defines whether podBunchOrderFn is enabled
+	EnabledPodBunchOrder *bool `yaml:"enabledPodBunchOrder"`
 	// Arguments defines the different arguments that can be given to different plugins
 	Arguments map[string]interface{} `yaml:"arguments"`
 }

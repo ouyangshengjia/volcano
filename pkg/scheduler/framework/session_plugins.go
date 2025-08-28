@@ -193,6 +193,11 @@ func (ssn *Session) AddPodBunchPipelinedFn(name string, vf api.VoteFn) {
 	ssn.podBunchPipelinedFns[name] = vf
 }
 
+// AddPodBunchOrderFn add PodBunchOrderFn function
+func (ssn *Session) AddPodBunchOrderFn(name string, fn api.CompareFn) {
+	ssn.podBunchOrderFns[name] = fn
+}
+
 // Reclaimable invoke reclaimable function of the plugins
 func (ssn *Session) Reclaimable(reclaimer *api.TaskInfo, reclaimees []*api.TaskInfo) []*api.TaskInfo {
 	var victims []*api.TaskInfo
@@ -610,7 +615,25 @@ func (ssn *Session) ReservedNodes() {
 }
 
 func (ssn *Session) PodBunchOrderFn(l, r interface{}) bool {
-	return false // todo
+	for _, tier := range ssn.Tiers {
+		for _, plugin := range tier.Plugins {
+			if !isEnabled(plugin.EnabledPodBunchOrder) {
+				continue
+			}
+			fn, found := ssn.podBunchOrderFns[plugin.Name]
+			if !found {
+				continue
+			}
+			if j := fn(l, r); j != 0 {
+				return j < 0
+			}
+		}
+	}
+
+	// If no podBunch order funcs, order podBunch by UID.
+	lv := l.(*api.PodBunchInfo)
+	rv := r.(*api.PodBunchInfo)
+	return lv.UID < rv.UID
 }
 
 // JobOrderFn invoke joborder function of the plugins
