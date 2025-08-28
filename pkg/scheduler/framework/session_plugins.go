@@ -198,6 +198,16 @@ func (ssn *Session) AddPodBunchOrderFn(name string, fn api.CompareFn) {
 	ssn.podBunchOrderFns[name] = fn
 }
 
+// AddHyperNodeGradientForJobFn add HyperNodeGradientForJobFn function
+func (ssn *Session) AddHyperNodeGradientForJobFn(name string, fn api.HyperNodeGradientForJobFn) {
+	ssn.hyperNodeGradientForJobFns[name] = fn
+}
+
+// AddHyperNodeGradientForPodBunchFn add HyperNodeGradientForPodBunchFn function
+func (ssn *Session) AddHyperNodeGradientForPodBunchFn(name string, fn api.HyperNodeGradientForPodBunchFn) {
+	ssn.hyperNodeGradientForPodBunchFns[name] = fn
+}
+
 // Reclaimable invoke reclaimable function of the plugins
 func (ssn *Session) Reclaimable(reclaimer *api.TaskInfo, reclaimees []*api.TaskInfo) []*api.TaskInfo {
 	var victims []*api.TaskInfo
@@ -1026,14 +1036,44 @@ func (ssn *Session) NodeOrderReduceFn(task *api.TaskInfo, pluginNodeScoreMap map
 
 // HyperNodeGradientForJobFn group hyperNodes into several gradients,
 // and discard hyperNodes that unmatched the job topology requirements.
+// The result is determined by the first plugin that registered this fn.
 func (ssn *Session) HyperNodeGradientForJobFn(job *api.JobInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
-	return nil // todo
+	for _, tier := range ssn.Tiers {
+		for _, plugin := range tier.Plugins {
+			if !isEnabled(plugin.EnabledHyperNodeGradient) {
+				continue
+			}
+			fn, found := ssn.hyperNodeGradientForJobFns[plugin.Name]
+			if !found {
+				continue
+			}
+			return fn(job, hyperNode)
+		}
+	}
+
+	// If there is no hyperNode gradient functions, only the input hyperNode is returned.
+	return [][]*api.HyperNodeInfo{{hyperNode}}
 }
 
 // HyperNodeGradientForPodBunchFn group hyperNodes into several gradients,
 // and discard hyperNodes that unmatched the podBunch topology requirements.
+// The result is determined by the first plugin that registered this fn.
 func (ssn *Session) HyperNodeGradientForPodBunchFn(podBunch *api.PodBunchInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
-	return nil // todo
+	for _, tier := range ssn.Tiers {
+		for _, plugin := range tier.Plugins {
+			if !isEnabled(plugin.EnabledHyperNodeGradient) {
+				continue
+			}
+			fn, found := ssn.hyperNodeGradientForPodBunchFns[plugin.Name]
+			if !found {
+				continue
+			}
+			return fn(podBunch, hyperNode)
+		}
+	}
+
+	// If there is no hyperNode gradient functions, only the input hyperNode is returned.
+	return [][]*api.HyperNodeInfo{{hyperNode}}
 }
 
 // BuildVictimsPriorityQueue returns a priority queue with victims sorted by:

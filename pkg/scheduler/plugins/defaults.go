@@ -49,6 +49,7 @@ func ApplyPluginConfDefaults(option *conf.PluginOption) {
 	setDefaultIfNil(&option.EnabledPodBunchReady)
 	setDefaultIfNil(&option.EnabledPodBunchPipelined)
 	setDefaultIfNil(&option.EnabledPodBunchOrder)
+	setDefaultIfNil(&option.EnabledHyperNodeGradient)
 }
 
 func setDefaultIfNil(field **bool) {

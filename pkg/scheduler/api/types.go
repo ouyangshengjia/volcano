@@ -377,3 +377,11 @@ type SimulatePredicateFn func(ctx context.Context, state *k8sframework.CycleStat
 // Simulate the allocatable check for a node
 // Plugins implement this function to verify if the queue has enough resources to schedule the task while maintaining topology constraints
 type SimulateAllocatableFn func(ctx context.Context, state *k8sframework.CycleState, queue *QueueInfo, task *TaskInfo) bool
+
+// HyperNodeGradientForJobFn group hyperNodes into several gradients,
+// and discard hyperNodes that unmatched the job topology requirements.
+type HyperNodeGradientForJobFn func(job *JobInfo, hyperNode *HyperNodeInfo) [][]*HyperNodeInfo
+
+// HyperNodeGradientForPodBunchFn group hyperNodes into several gradients,
+// and discard hyperNodes that unmatched the podBunch topology requirements.
+type HyperNodeGradientForPodBunchFn func(podBunch *PodBunchInfo, hyperNode *HyperNodeInfo) [][]*HyperNodeInfo

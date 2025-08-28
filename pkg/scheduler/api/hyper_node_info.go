@@ -85,6 +85,7 @@ type HyperNodeInfo struct {
 
 	tier       int
 	parent     string
+	children   sets.Set[string]
 	isDeleting bool
 }
 
@@ -94,6 +95,7 @@ func NewHyperNodeInfo(hn *topologyv1alpha1.HyperNode) *HyperNodeInfo {
 		Name:      hn.Name,
 		HyperNode: hn,
 		tier:      hn.Spec.Tier,
+		children:  sets.New[string](),
 	}
 }
 
@@ -111,6 +113,11 @@ func (hni *HyperNodeInfo) Tier() int {
 	return hni.tier
 }
 
+// Children returns the children of the hypernode
+func (hni *HyperNodeInfo) Children() sets.Set[string] {
+	return hni.children
+}
+
 func (hni *HyperNodeInfo) DeepCopy() *HyperNodeInfo {
 	if hni == nil {
 		return nil
@@ -122,6 +129,7 @@ func (hni *HyperNodeInfo) DeepCopy() *HyperNodeInfo {
 		HyperNode:  hni.HyperNode.DeepCopy(),
 		isDeleting: hni.isDeleting,
 		parent:     hni.parent,
+		children:   hni.children.Clone(),
 	}
 
 	return copiedHyperNodeInfo
@@ -237,7 +245,7 @@ func (hni *HyperNodesInfo) BuildHyperNodeCache(hn *HyperNodeInfo, processed sets
 				continue
 			}
 
-			if err := hni.setParent(memberName, hn.Name); err != nil {
+			if err := hni.addChild(hn.Name, memberName); err != nil {
 				return err
 			}
 
@@ -398,8 +406,14 @@ func (hni *HyperNodesInfo) GetRegexOrLabelMatchLeafHyperNodes() sets.Set[string]
 	return leaf
 }
 
-// setParent sets the parent of a HyperNode member.
-func (hni *HyperNodesInfo) setParent(member, parent string) error {
+// addChild adds the HyperNode member to the parent and sets the parent of a HyperNode member.
+func (hni *HyperNodesInfo) addChild(parent, member string) error {
+	p, ok := hni.hyperNodes[parent]
+	if !ok {
+		hni.builtErrHyperNode = parent
+		return fmt.Errorf("parent HyperNode %s not exists in cache", parent)
+	}
+
 	hn, ok := hni.hyperNodes[member]
 	if !ok {
 		klog.InfoS("HyperNode not exists in cache, maybe not created or not be watched, will set parent first", "name", member, "parent", parent)
@@ -407,12 +421,12 @@ func (hni *HyperNodesInfo) setParent(member, parent string) error {
 			Name: member,
 		}})
 		hni.hyperNodes[member] = hn
-		hn.parent = parent
-		return nil
 	}
+
 	currentParent := hn.parent
 	if currentParent == "" {
 		hn.parent = parent
+		p.children.Insert(member)
 		return nil
 	}
 
@@ -503,6 +517,7 @@ func (hni *HyperNodesInfo) rebuildCache(name string) error {
 	for _, ancestor := range ancestors {
 		delete(hni.realNodesSet, ancestor)
 		hni.resetParent(ancestor)
+		hni.resetChildren(ancestor)
 	}
 
 	processed := sets.New[string]()
@@ -562,6 +577,12 @@ func (hni *HyperNodesInfo) removeParent(name string) {
 func (hni *HyperNodesInfo) resetParent(name string) {
 	if hn, ok := hni.hyperNodes[name]; ok {
 		hn.parent = ""
+	}
+}
+
+func (hni *HyperNodesInfo) resetChildren(name string) {
+	if hn, ok := hni.hyperNodes[name]; ok {
+		hn.children.Clear()
 	}
 }
 

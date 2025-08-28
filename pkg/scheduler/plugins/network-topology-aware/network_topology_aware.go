@@ -17,7 +17,11 @@ limitations under the License.
 package networktopologyaware
 
 import (
+	"fmt"
+	"sort"
+
 	"k8s.io/klog/v2"
+	"k8s.io/utils/set"
 
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/framework"
@@ -161,6 +165,127 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 
 	ssn.AddHyperNodeOrderFn(nta.Name(), hyperNodeFn)
 	ssn.AddBatchNodeOrderFn(nta.Name(), nodeFn)
+
+	hyperNodeGradientFn := func(hyperNode *api.HyperNodeInfo, highestAllowedTier int, allocatedHyperNode string) ([][]*api.HyperNodeInfo, error) {
+		enqueued := set.New[string]()
+		var processQueue []*api.HyperNodeInfo
+
+		searchRoot, err := getSearchRoot(ssn.HyperNodes, hyperNode, highestAllowedTier, allocatedHyperNode)
+		if err != nil {
+			return nil, fmt.Errorf("getSearchRoot failed: %w", err)
+		}
+
+		processQueue = append(processQueue, searchRoot)
+		enqueued.Insert(searchRoot.Name)
+
+		eligibleHyperNodes := make(map[int][]*api.HyperNodeInfo)
+		for len(processQueue) > 0 {
+			// pop one hyperNode from queue
+			current := processQueue[0]
+			processQueue = processQueue[1:]
+
+			if current.Tier() <= highestAllowedTier {
+				eligibleHyperNodes[current.Tier()] = append(eligibleHyperNodes[current.Tier()], current)
+			}
+
+			// push children hyperNode into queue
+			for child := range current.Children() {
+				if enqueued.Has(child) {
+					continue
+				}
+				processQueue = append(processQueue, ssn.HyperNodes[child])
+				enqueued.Insert(child)
+			}
+		}
+
+		// organize hyperNode gradients by tiers in ascending order
+		var tiers []int
+		for tier := range eligibleHyperNodes {
+			tiers = append(tiers, tier)
+		}
+		sort.Ints(tiers)
+
+		var result [][]*api.HyperNodeInfo
+		for _, tier := range tiers {
+			result = append(result, eligibleHyperNodes[tier])
+		}
+
+		return result, nil
+	}
+
+	ssn.AddHyperNodeGradientForJobFn(nta.Name(), func(job *api.JobInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+		if hardMode, highestAllowedTier := job.IsHardTopologyMode(); hardMode {
+			result, err := hyperNodeGradientFn(hyperNode, highestAllowedTier, job.AllocatedHyperNode)
+			if err != nil {
+				klog.ErrorS(err, "build hyperNode gradient fail", "job", job.UID, "hyperNode", hyperNode.Name,
+					"highestAllowedTier", highestAllowedTier, "allocatedHyperNode", job.AllocatedHyperNode)
+				return nil
+			}
+			return result
+		}
+		return [][]*api.HyperNodeInfo{{hyperNode}}
+	})
+	ssn.AddHyperNodeGradientForPodBunchFn(nta.Name(), func(podBunch *api.PodBunchInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+		if hardMode, highestAllowedTier := podBunch.IsHardTopologyMode(); hardMode {
+			result, err := hyperNodeGradientFn(hyperNode, highestAllowedTier, podBunch.AllocatedHyperNode)
+			if err != nil {
+				klog.ErrorS(err, "build hyperNode gradient fail", "podBunch", podBunch.UID, "hyperNode", hyperNode.Name,
+					"highestAllowedTier", highestAllowedTier, "allocatedHyperNode", podBunch.AllocatedHyperNode)
+				return nil
+			}
+			return result
+		}
+		return [][]*api.HyperNodeInfo{{hyperNode}}
+	})
+}
+
+// getSearchRoot returns the intersection of hyperNodeAvailable and hyperNodeHighestAllowed
+func getSearchRoot(hyperNodes api.HyperNodeInfoMap, hyperNodeAvailable *api.HyperNodeInfo, highestAllowedTier int, allocatedHyperNode string) (*api.HyperNodeInfo, error) {
+	if allocatedHyperNode == "" {
+		return hyperNodeAvailable, nil
+	}
+
+	hyperNodeHighestAllowed, err := getHighestAllowedHyperNode(hyperNodes, highestAllowedTier, allocatedHyperNode)
+	if err != nil {
+		return nil, fmt.Errorf("get highest allowed hyperNode failed: %w", err)
+	}
+
+	lca := hyperNodes.GetLCAHyperNode(hyperNodeAvailable.Name, hyperNodeHighestAllowed)
+	if lca == hyperNodeHighestAllowed {
+		return hyperNodeAvailable, nil
+	}
+	if lca == hyperNodeAvailable.Name {
+		hni, ok := hyperNodes[hyperNodeHighestAllowed]
+		if !ok {
+			return nil, fmt.Errorf("failed to get highest allowed HyperNode info for %s", hyperNodeHighestAllowed)
+		}
+		return hni, nil
+	}
+
+	return nil, fmt.Errorf("hyperNodeAvailable %s and hyperNodeHighestAllowed %s have no intersection",
+		hyperNodeAvailable.Name, hyperNodeHighestAllowed)
+}
+
+func getHighestAllowedHyperNode(hyperNodes api.HyperNodeInfoMap, highestAllowedTier int, allocatedHyperNode string) (string, error) {
+	var highestAllowedHyperNode string
+
+	ancestors := hyperNodes.GetAncestors(allocatedHyperNode)
+	for _, ancestor := range ancestors {
+		hni, ok := hyperNodes[ancestor]
+		if !ok {
+			return "", fmt.Errorf("allocated hyperNode %s ancestor %s not found", allocatedHyperNode, ancestor)
+		}
+		if hni.Tier() > highestAllowedTier {
+			break
+		}
+		highestAllowedHyperNode = ancestor
+	}
+
+	if highestAllowedHyperNode == "" {
+		return "", fmt.Errorf("allocated hyperNode %s tier is greater than highest allowed tier %d", allocatedHyperNode, highestAllowedTier)
+	}
+
+	return highestAllowedHyperNode, nil
 }
 
 func (bp *networkTopologyAwarePlugin) OnSessionClose(ssn *framework.Session) {
