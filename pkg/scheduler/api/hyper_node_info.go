@@ -83,9 +83,10 @@ type HyperNodeInfo struct {
 	Name      string
 	HyperNode *topologyv1alpha1.HyperNode
 
+	Parent   string
+	Children sets.Set[string]
+
 	tier       int
-	parent     string
-	children   sets.Set[string]
 	isDeleting bool
 }
 
@@ -95,7 +96,7 @@ func NewHyperNodeInfo(hn *topologyv1alpha1.HyperNode) *HyperNodeInfo {
 		Name:      hn.Name,
 		HyperNode: hn,
 		tier:      hn.Spec.Tier,
-		children:  sets.New[string](),
+		Children:  sets.New[string](),
 	}
 }
 
@@ -104,18 +105,13 @@ func (hni *HyperNodeInfo) String() string {
 	return strings.Join([]string{
 		fmt.Sprintf("Name: %s", hni.Name),
 		fmt.Sprintf(" Tier: %d", hni.tier),
-		fmt.Sprintf(" Parent: %s", hni.parent)},
+		fmt.Sprintf(" Parent: %s", hni.Parent)},
 		",")
 }
 
 // Tier returns the tier of the hypernode
 func (hni *HyperNodeInfo) Tier() int {
 	return hni.tier
-}
-
-// Children returns the children of the hypernode
-func (hni *HyperNodeInfo) Children() sets.Set[string] {
-	return hni.children
 }
 
 func (hni *HyperNodeInfo) DeepCopy() *HyperNodeInfo {
@@ -128,8 +124,8 @@ func (hni *HyperNodeInfo) DeepCopy() *HyperNodeInfo {
 		tier:       hni.tier,
 		HyperNode:  hni.HyperNode.DeepCopy(),
 		isDeleting: hni.isDeleting,
-		parent:     hni.parent,
-		children:   hni.children.Clone(),
+		Parent:     hni.Parent,
+		Children:   hni.Children.Clone(),
 	}
 
 	return copiedHyperNodeInfo
@@ -423,10 +419,10 @@ func (hni *HyperNodesInfo) addChild(parent, member string) error {
 		hni.hyperNodes[member] = hn
 	}
 
-	currentParent := hn.parent
+	currentParent := hn.Parent
 	if currentParent == "" {
-		hn.parent = parent
-		p.children.Insert(member)
+		hn.Parent = parent
+		p.Children.Insert(member)
 		return nil
 	}
 
@@ -576,13 +572,13 @@ func (hni *HyperNodesInfo) removeParent(name string) {
 
 func (hni *HyperNodesInfo) resetParent(name string) {
 	if hn, ok := hni.hyperNodes[name]; ok {
-		hn.parent = ""
+		hn.Parent = ""
 	}
 }
 
 func (hni *HyperNodesInfo) resetChildren(name string) {
 	if hn, ok := hni.hyperNodes[name]; ok {
-		hn.children.Clear()
+		hn.Children.Clear()
 	}
 }
 
@@ -690,8 +686,8 @@ func (hnim HyperNodeInfoMap) GetAncestors(name string) []string {
 
 		parent := ""
 		hn, ok := hnim[current]
-		if ok && hn.parent != "" {
-			parent = hn.parent
+		if ok && hn.Parent != "" {
+			parent = hn.Parent
 		} else {
 			parent = hnim.getParent(current)
 		}

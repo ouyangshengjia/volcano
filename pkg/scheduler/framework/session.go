@@ -44,7 +44,9 @@ import (
 	"volcano.sh/apis/pkg/apis/scheduling"
 	schedulingscheme "volcano.sh/apis/pkg/apis/scheduling/scheme"
 	vcv1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
+	topologyv1alpha1 "volcano.sh/apis/pkg/apis/topology/v1alpha1"
 	vcclient "volcano.sh/apis/pkg/client/clientset/versioned"
+
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/cache"
 	"volcano.sh/volcano/pkg/scheduler/conf"
@@ -221,11 +223,14 @@ func openSession(cache cache.Cache) *Session {
 		}
 	}
 	ssn.NodeList = util.GetNodeList(snapshot.Nodes, snapshot.NodeList)
+
 	ssn.HyperNodes = snapshot.HyperNodes
 	ssn.HyperNodesSetByTier = snapshot.HyperNodesSetByTier
-	ssn.parseHyperNodesTiers()
 	ssn.RealNodesList = util.GetRealNodesListByHyperNode(snapshot.RealNodesSet, snapshot.Nodes)
 	ssn.HyperNodesReadyToSchedule = snapshot.HyperNodesReadyToSchedule
+	ssn.addClusterRootHyperNode(ssn.NodeList)
+	ssn.parseHyperNodesTiers()
+
 	ssn.Nodes = snapshot.Nodes
 	ssn.CSINodesStatus = snapshot.CSINodesStatus
 	ssn.RevocableNodes = snapshot.RevocableNodes
@@ -245,6 +250,33 @@ func openSession(cache cache.Cache) *Session {
 		ssn.UID, len(ssn.Jobs), len(ssn.Queues))
 
 	return ssn
+}
+
+// addClusterRootHyperNode adds a virtual root hyperNode of all hyperNodes in the cluster into the session
+func (ssn *Session) addClusterRootHyperNode(nodes []*api.NodeInfo) {
+	rootTier := 1
+	for tier := range ssn.HyperNodesSetByTier {
+		if tier >= rootTier {
+			rootTier = tier + 1 // rootTier should be greater than the highest tier of real hyperNodes
+		}
+	}
+
+	rootHn := &topologyv1alpha1.HyperNode{}
+	rootHn.Name = ClusterRootHyperNode
+	rootHn.Spec.Tier = rootTier
+	rootHni := api.NewHyperNodeInfo(rootHn)
+
+	for _, hni := range ssn.HyperNodes {
+		if hni.Parent != "" {
+			continue
+		}
+		hni.Parent = rootHn.Name
+		rootHni.Children.Insert(hni.Name)
+	}
+
+	ssn.HyperNodes[rootHni.Name] = rootHni
+	ssn.HyperNodesSetByTier[rootHni.Tier()] = sets.New(rootHni.Name)
+	ssn.RealNodesList[rootHni.Name] = nodes
 }
 
 func (ssn *Session) parseHyperNodesTiers() {

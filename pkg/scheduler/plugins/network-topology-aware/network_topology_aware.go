@@ -189,7 +189,7 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 			}
 
 			// push children hyperNode into queue
-			for child := range current.Children() {
+			for child := range current.Children {
 				if enqueued.Has(child) {
 					continue
 				}
