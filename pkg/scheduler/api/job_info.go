@@ -33,6 +33,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -112,9 +113,8 @@ func (info *TopologyInfo) Clone() *TopologyInfo {
 
 // TaskInfo will have all infos about the task
 type TaskInfo struct {
-	UID      TaskID
-	Job      JobID
-	PodBunch BunchID
+	UID TaskID
+	Job JobID
 
 	Name      string
 	Namespace string
@@ -356,6 +356,7 @@ type JobInfo struct {
 
 	AllocatedHyperNode string
 	PodBunches         map[BunchID]*PodBunchInfo
+	TaskToPodBunch     map[TaskID]BunchID
 
 	// All tasks of the Job.
 	TaskStatusIndex       map[TaskStatus]TasksMap
@@ -392,6 +393,8 @@ func NewJobInfo(uid JobID, tasks ...*TaskInfo) *JobInfo {
 		TaskStatusIndex:  map[TaskStatus]TasksMap{},
 		Tasks:            TasksMap{},
 		TaskMinAvailable: map[string]int32{},
+		PodBunches:       map[BunchID]*PodBunchInfo{},
+		TaskToPodBunch:   map[TaskID]BunchID{},
 	}
 
 	for _, task := range tasks {
@@ -404,6 +407,11 @@ func NewJobInfo(uid JobID, tasks ...*TaskInfo) *JobInfo {
 // UnsetPodGroup removes podGroup details from a job
 func (ji *JobInfo) UnsetPodGroup() {
 	ji.PodGroup = nil
+
+	for _, task := range ji.Tasks {
+		ji.deleteTaskFromPodBunch(task)
+		ji.addTaskToPodBunch(task)
+	}
 }
 
 // SetPodGroup sets podGroup details to a job
@@ -436,8 +444,16 @@ func (ji *JobInfo) SetPodGroup(pg *PodGroup) {
 
 	ji.ParseMinMemberInfo(pg)
 
+	oldPG := ji.PodGroup
 	ji.PgUID = pg.UID
 	ji.PodGroup = pg
+
+	if oldPG == nil || !equality.Semantic.DeepEqual(oldPG.Spec.BunchPolicy, pg.Spec.BunchPolicy) {
+		for _, task := range ji.Tasks {
+			ji.deleteTaskFromPodBunch(task)
+			ji.addTaskToPodBunch(task)
+		}
+	}
 }
 
 // extractWaitingTime reads sla waiting time for job from podgroup annotations
@@ -607,6 +623,7 @@ func (ji *JobInfo) AddTaskInfo(ti *TaskInfo) {
 	if AllocatedStatus(ti.Status) {
 		ji.Allocated.Add(ti.Resreq)
 	}
+	ji.addTaskToPodBunch(ti)
 }
 
 // UpdateTaskStatus is used to update task's status in a job.
@@ -649,6 +666,7 @@ func (ji *JobInfo) DeleteTaskInfo(ti *TaskInfo) error {
 		}
 		delete(ji.Tasks, task.UID)
 		ji.deleteTaskIndex(task)
+		ji.deleteTaskFromPodBunch(ti)
 		return nil
 	}
 
@@ -682,6 +700,8 @@ func (ji *JobInfo) Clone() *JobInfo {
 		Preemptable:           ji.Preemptable,
 		RevocableZone:         ji.RevocableZone,
 		Budget:                ji.Budget.Clone(),
+		PodBunches:            map[BunchID]*PodBunchInfo{},
+		TaskToPodBunch:        map[TaskID]BunchID{},
 	}
 
 	ji.CreationTimestamp.DeepCopyInto(&info.CreationTimestamp)
@@ -1091,4 +1111,54 @@ func (ji *JobInfo) ResetPodBunchFitErr(podBunch *PodBunchInfo) {
 		_, found := podBunch.Tasks[taskID]
 		return found
 	})
+}
+
+func (ji *JobInfo) DefaultPodBunchID() BunchID {
+	return BunchID(ji.UID)
+}
+
+func (ji *JobInfo) getOrCreateDefaultPodBunch() *PodBunchInfo {
+	defaultPodBunch := ji.DefaultPodBunchID()
+	if _, found := ji.PodBunches[defaultPodBunch]; !found {
+		ji.PodBunches[defaultPodBunch] = NewPodBunchInfo(defaultPodBunch, ji.UID, nil)
+	}
+	return ji.PodBunches[defaultPodBunch]
+}
+
+func (ji *JobInfo) getOrCreatePodBunch(ti *TaskInfo) *PodBunchInfo {
+	if ji.PodGroup == nil {
+		return ji.getOrCreateDefaultPodBunch()
+	}
+
+	for _, policy := range ji.PodGroup.Spec.BunchPolicy {
+		matchId := getPodBunchMatchId(policy, ti.Pod)
+		if matchId != "" {
+			bunchID := BunchID(fmt.Sprintf("%s/%s", ji.UID, matchId))
+			if _, found := ji.PodBunches[bunchID]; !found {
+				ji.PodBunches[bunchID] = NewPodBunchInfo(bunchID, ji.UID, &policy)
+			}
+			return ji.PodBunches[bunchID]
+		}
+	}
+
+	return ji.getOrCreateDefaultPodBunch()
+}
+
+func (ji *JobInfo) addTaskToPodBunch(ti *TaskInfo) {
+	podBunch := ji.getOrCreatePodBunch(ti)
+	podBunch.addTask(ti)
+
+	ji.TaskToPodBunch[ti.UID] = podBunch.UID
+}
+
+func (ji *JobInfo) deleteTaskFromPodBunch(ti *TaskInfo) {
+	bunchID := ji.TaskToPodBunch[ti.UID]
+	if podBunch, found := ji.PodBunches[bunchID]; found {
+		podBunch.deleteTask(ti)
+		if len(podBunch.Tasks) == 0 && podBunch.UID != ji.DefaultPodBunchID() {
+			delete(ji.PodBunches, bunchID)
+		}
+	}
+
+	delete(ji.TaskToPodBunch, ti.UID)
 }

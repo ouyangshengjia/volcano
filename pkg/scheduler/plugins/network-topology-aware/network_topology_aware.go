@@ -124,7 +124,8 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 	nodeFn := func(task *api.TaskInfo, nodes []*api.NodeInfo) (map[string]float64, error) {
 		nodeScores := make(map[string]float64)
 
-		podBunch := ssn.Jobs[task.Job].PodBunches[task.PodBunch]
+		job := ssn.Jobs[task.Job]
+		podBunch := job.PodBunches[job.TaskToPodBunch[task.UID]]
 
 		hardMode, _ := podBunch.IsHardTopologyMode()
 		if hardMode {
