@@ -196,7 +196,7 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 			stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterRootHyperNode])
 			if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
 				stmt.Commit()
-				alloc.decision.UpdateDecisionToJob(job, ssn.HyperNodes) // todo update to scheduler cache
+				alloc.decision.UpdateDecisionToJob(job, ssn.HyperNodes)
 
 				// There are still left tasks that need to be allocated when min available < replicas, put the job back
 				if !jobWorksheet.Empty() {

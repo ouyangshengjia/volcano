@@ -25,6 +25,8 @@ package framework
 import (
 	"context"
 	"fmt"
+	"maps"
+	"math"
 	"sort"
 	"sync"
 
@@ -74,7 +76,7 @@ type Session struct {
 	TotalDeserved  *api.Resource
 	// PodGroupOldState contains podgroup status and annotations during schedule
 	// This should not be mutated after initiated
-	api.PodGroupOldState
+	PodGroupOldState *api.PodGroupOldState
 
 	Jobs           map[api.JobID]*api.JobInfo
 	Nodes          map[string]*api.NodeInfo
@@ -164,7 +166,7 @@ func openSession(cache cache.Cache) *Session {
 		TotalResource:  api.EmptyResource(),
 		TotalGuarantee: api.EmptyResource(),
 		TotalDeserved:  api.EmptyResource(),
-		PodGroupOldState: api.PodGroupOldState{
+		PodGroupOldState: &api.PodGroupOldState{
 			Status:      map[api.JobID]scheduling.PodGroupStatus{},
 			Annotations: map[api.JobID]map[string]string{},
 		},
@@ -217,9 +219,10 @@ func openSession(cache cache.Cache) *Session {
 
 	ssn.Jobs = snapshot.Jobs
 	for _, job := range ssn.Jobs {
+		fixAllocatedHyperNode(job, snapshot.HyperNodes, snapshot.RealNodesSet)
 		if job.PodGroup != nil {
 			ssn.PodGroupOldState.Status[job.UID] = *job.PodGroup.Status.DeepCopy()
-			ssn.PodGroupOldState.Annotations[job.UID] = job.PodGroup.GetAnnotations()
+			ssn.PodGroupOldState.Annotations[job.UID] = maps.Clone(job.PodGroup.GetAnnotations())
 		}
 	}
 	ssn.NodeList = util.GetNodeList(snapshot.Nodes, snapshot.NodeList)
@@ -277,6 +280,100 @@ func (ssn *Session) addClusterRootHyperNode(nodes []*api.NodeInfo) {
 	ssn.HyperNodes[rootHni.Name] = rootHni
 	ssn.HyperNodesSetByTier[rootHni.Tier()] = sets.New(rootHni.Name)
 	ssn.RealNodesList[rootHni.Name] = nodes
+}
+
+func fixAllocatedHyperNode(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap, nodesByHyperNode map[string]sets.Set[string]) {
+	// remove job AllocatedHyperNode if invalid
+	if job.AllocatedHyperNode != "" {
+		if _, found := hyperNodes[job.AllocatedHyperNode]; !found {
+			klog.V(3).InfoS("remove invalid job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", job.AllocatedHyperNode)
+			job.AllocatedHyperNode = ""
+		}
+	}
+
+	// remove podBunch AllocatedHyperNode if invalid
+	for _, podBunch := range job.PodBunches {
+		if podBunch.AllocatedHyperNode != "" {
+			if _, found := hyperNodes[podBunch.AllocatedHyperNode]; !found {
+				klog.V(3).InfoS("remove invalid podBunch allocated hyperNode", "podBunch", podBunch.UID, "AllocatedHyperNode", podBunch.AllocatedHyperNode)
+				podBunch.AllocatedHyperNode = ""
+			}
+		}
+	}
+
+	// update podBunch AllocatedHyperNode based on allocated nodes
+	allHyperNodeSet := sets.New[string]()
+	for hn := range hyperNodes {
+		allHyperNodeSet.Insert(hn)
+	}
+	for _, podBunch := range job.PodBunches {
+		if !podBunch.ContainsNetworkTopology() || podBunch.AllocatedHyperNode != "" {
+			continue
+		}
+
+		podBunchAllocatedHyperNode := sets.New[string]()
+		firstTask := true
+		for _, task := range podBunch.Tasks {
+			if task.NodeName == "" {
+				continue
+			}
+
+			var search sets.Set[string]
+			taskAllocatedHyperNode := sets.New[string]()
+			if firstTask {
+				search = allHyperNodeSet
+				firstTask = false
+			} else {
+				search = podBunchAllocatedHyperNode
+			}
+			for hn := range search {
+				if nodes, found := nodesByHyperNode[hn]; found && nodes.Has(task.NodeName) {
+					taskAllocatedHyperNode.Insert(task.NodeName)
+				}
+			}
+			podBunchAllocatedHyperNode = podBunchAllocatedHyperNode.Intersection(taskAllocatedHyperNode)
+			if podBunchAllocatedHyperNode.Len() == 0 {
+				break
+			}
+		}
+		minimumHyperNode := getMinimumHyperNode(podBunchAllocatedHyperNode, nodesByHyperNode)
+		podBunch.AllocatedHyperNode = minimumHyperNode
+		klog.V(3).InfoS("update podBunch allocated hyperNode", "podBunch", podBunch.UID, "AllocatedHyperNode", minimumHyperNode)
+	}
+
+	// update job AllocatedHyperNode based on podBunch allocated hyperNode
+	var lca string
+	for _, podBunch := range job.PodBunches {
+		if podBunch.AllocatedHyperNode == "" {
+			continue
+		}
+		if lca == "" {
+			lca = podBunch.AllocatedHyperNode
+		}
+		lca = hyperNodes.GetLCAHyperNode(lca, podBunch.AllocatedHyperNode)
+		if lca == "" {
+			lca = ClusterRootHyperNode
+			break
+		}
+	}
+	job.AllocatedHyperNode = lca
+	klog.V(3).InfoS("update job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", lca)
+}
+
+func getMinimumHyperNode(hyperNodes sets.Set[string], nodesByHyperNode map[string]sets.Set[string]) string {
+	if hyperNodes.Len() == 0 {
+		return ClusterRootHyperNode
+	}
+
+	minimumNodeSize := math.MaxInt
+	minimumHyperNode := ClusterRootHyperNode
+	for name := range hyperNodes {
+		if nodes, found := nodesByHyperNode[name]; found && nodes.Len() < minimumNodeSize {
+			minimumNodeSize = nodes.Len()
+			minimumHyperNode = name
+		}
+	}
+	return minimumHyperNode
 }
 
 func (ssn *Session) parseHyperNodesTiers() {

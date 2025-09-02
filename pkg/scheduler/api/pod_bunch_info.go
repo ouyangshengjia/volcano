@@ -64,6 +64,10 @@ func (pbi *PodBunchInfo) IsSoftTopologyMode() bool {
 	return pbi.networkTopology.Mode == scheduling.SoftNetworkTopologyMode
 }
 
+func (pbi *PodBunchInfo) ContainsNetworkTopology() bool {
+	return pbi.networkTopology != nil
+}
+
 func (pbi *PodBunchInfo) addTask(ti *TaskInfo) {
 	pbi.Tasks[ti.UID] = ti
 
