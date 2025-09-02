@@ -367,7 +367,11 @@ func (ssn *Session) Allocatable(queue *api.QueueInfo, candidate *api.TaskInfo) b
 	return true
 }
 
-func (ssn *Session) PodBunchReady(obj interface{}) bool {
+func (ssn *Session) PodBunchReady(job *api.JobInfo, podBunch *api.PodBunchInfo) bool {
+	if !job.ContainsRealPodBunch() {
+		return ssn.JobReady(job)
+	}
+
 	for _, tier := range ssn.Tiers {
 		for _, plugin := range tier.Plugins {
 			if !isEnabled(plugin.EnabledPodBunchReady) {
@@ -378,7 +382,7 @@ func (ssn *Session) PodBunchReady(obj interface{}) bool {
 				continue
 			}
 
-			if !fn(obj) {
+			if !fn(podBunch) {
 				return false
 			}
 		}
@@ -387,7 +391,11 @@ func (ssn *Session) PodBunchReady(obj interface{}) bool {
 	return true
 }
 
-func (ssn *Session) PodBunchPipelined(obj interface{}) bool {
+func (ssn *Session) PodBunchPipelined(job *api.JobInfo, podBunch *api.PodBunchInfo) bool {
+	if !job.ContainsRealPodBunch() {
+		return ssn.JobPipelined(job)
+	}
+
 	var hasFound bool
 	for _, tier := range ssn.Tiers {
 		for _, plugin := range tier.Plugins {
@@ -399,7 +407,7 @@ func (ssn *Session) PodBunchPipelined(obj interface{}) bool {
 				continue
 			}
 
-			res := fn(obj)
+			res := fn(podBunch)
 			if res < 0 {
 				return false
 			}

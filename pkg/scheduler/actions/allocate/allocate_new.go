@@ -14,9 +14,10 @@ import (
 )
 
 type allocateContext struct {
-	queues       *util.PriorityQueue                 // queue of *api.QueueInfo
-	jobsByQueue  map[api.QueueID]*util.PriorityQueue // queue of *api.JobInfo
-	jobWorksheet map[api.JobID]*JobWorksheet
+	queues              *util.PriorityQueue                 // queue of *api.QueueInfo
+	jobsByQueue         map[api.QueueID]*util.PriorityQueue // queue of *api.JobInfo
+	jobWorksheet        map[api.JobID]*JobWorksheet
+	tasksNoHardTopology map[api.JobID]*util.PriorityQueue // queue of *api.TaskInfo, job without any hard network topology policy use this queue
 }
 
 type JobWorksheet struct {
@@ -115,6 +116,13 @@ func (alloc *Action) buildAllocateContext() *allocateContext {
 		klog.V(4).Infof("Added Job <%s/%s> into Queue <%s>", job.Namespace, job.Name, job.Queue)
 		actx.jobsByQueue[job.Queue].Push(job)
 		actx.jobWorksheet[job.UID] = worksheet
+
+		// job without any hard network topology policy use actx.tasksNoHardTopology
+		if !job.ContainsHardTopology() {
+			if podbunchWorksheet, exist := worksheet.podBunchWorksheets[job.DefaultPodBunchID()]; exist {
+				actx.tasksNoHardTopology[job.UID] = podbunchWorksheet.tasks
+			}
+		}
 	}
 
 	return actx
@@ -180,19 +188,37 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 		}
 
 		job := jobs.Pop().(*api.JobInfo)
-		jobWorksheet := actx.jobWorksheet[job.UID]
 
-		klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID,
-			"podBunchNum", jobWorksheet.podBunches.Len())
+		if job.ContainsHardTopology() {
+			jobWorksheet := actx.jobWorksheet[job.UID]
+			klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "podBunchNum", jobWorksheet.podBunches.Len())
 
-		stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterRootHyperNode])
-		if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
-			stmt.Commit()
-			alloc.decision.UpdateDecisionToJob(job, ssn.HyperNodes) // todo update to scheduler cache
+			stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterRootHyperNode])
+			if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
+				stmt.Commit()
+				alloc.decision.UpdateDecisionToJob(job, ssn.HyperNodes) // todo update to scheduler cache
 
-			// There are still left tasks that need to be allocated when min available < replicas, put the job back
-			if !jobWorksheet.Empty() {
-				jobs.Push(job)
+				// There are still left tasks that need to be allocated when min available < replicas, put the job back
+				if !jobWorksheet.Empty() {
+					jobs.Push(job)
+				}
+			}
+		} else {
+			podBunch, pbExist := job.PodBunches[job.DefaultPodBunchID()]
+			tasks, tasksExist := actx.tasksNoHardTopology[job.UID]
+			if pbExist && tasksExist {
+				klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "taskNum", tasks.Len())
+				stmt, _ := alloc.allocateResourcesForTasks(podBunch, tasks, framework.ClusterRootHyperNode)
+				// There are still left tasks that need to be allocated when min available < replicas, put the job back
+				if tasks.Len() > 0 {
+					jobs.Push(job)
+				}
+				if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
+					stmt.Commit()
+				}
+			} else {
+				klog.ErrorS(nil, "Can not find default podBunch or tasks for job", "job", job.UID,
+					"podBunchExist", pbExist, "tasksExist", tasksExist)
 			}
 		}
 

@@ -1162,3 +1162,29 @@ func (ji *JobInfo) deleteTaskFromPodBunch(ti *TaskInfo) {
 
 	delete(ji.TaskToPodBunch, ti.UID)
 }
+
+// ContainsRealPodBunch returns whether the job has any other podBunches besides the virtual default podBunch
+func (ji *JobInfo) ContainsRealPodBunch() bool {
+	for bunchID := range ji.PodBunches {
+		if bunchID != ji.DefaultPodBunchID() {
+			return true
+		}
+	}
+	return false
+}
+
+func (ji *JobInfo) ContainsHardTopologyBunch() bool {
+	for _, pbi := range ji.PodBunches {
+		if hard, _ := pbi.IsHardTopologyMode(); hard {
+			return true
+		}
+	}
+	return false
+}
+
+func (ji *JobInfo) ContainsHardTopology() bool {
+	if hard, _ := ji.IsHardTopologyMode(); hard || ji.ContainsHardTopologyBunch() {
+		return true
+	}
+	return false
+}

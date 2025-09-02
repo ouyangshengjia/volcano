@@ -438,16 +438,16 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 			jobNewAllocatedHyperNode = getJobNewAllocatedHyperNode(ssn, bestNode.Name, job, jobNewAllocatedHyperNode)
 		}
 
-		if ssn.PodBunchReady(podBunch) {
+		if ssn.PodBunchReady(job, podBunch) {
 			break
 		}
 	}
 
-	if ssn.PodBunchReady(podBunch) {
+	if ssn.PodBunchReady(job, podBunch) {
 		klog.V(3).InfoS("PodBunch ready, return statement", "job", job.UID, "podBunch", podBunch.UID)
 		updateJobAllocatedHyperNode(job, jobNewAllocatedHyperNode)
 		return stmt, totalNodeScore
-	} else if ssn.PodBunchPipelined(podBunch) {
+	} else if ssn.PodBunchPipelined(job, podBunch) {
 		klog.V(3).InfoS("PodBunch pipelined, return statement", "job", job.UID, "podBunch", podBunch.UID)
 		return stmt, totalNodeScore
 	}
