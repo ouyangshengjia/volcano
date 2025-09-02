@@ -648,9 +648,12 @@ func (ssn *Session) PodBunchOrderFn(l, r interface{}) bool {
 		}
 	}
 
-	// If no podBunch order funcs, order podBunch by UID.
+	// If no podBunch order funcs, order podBunch by MatchIndex and UID.
 	lv := l.(*api.PodBunchInfo)
 	rv := r.(*api.PodBunchInfo)
+	if lv.MatchIndex != rv.MatchIndex {
+		return lv.MatchIndex < rv.MatchIndex
+	}
 	return lv.UID < rv.UID
 }
 

@@ -1120,7 +1120,7 @@ func (ji *JobInfo) DefaultPodBunchID() BunchID {
 func (ji *JobInfo) getOrCreateDefaultPodBunch() *PodBunchInfo {
 	defaultPodBunch := ji.DefaultPodBunchID()
 	if _, found := ji.PodBunches[defaultPodBunch]; !found {
-		ji.PodBunches[defaultPodBunch] = NewPodBunchInfo(defaultPodBunch, ji.UID, nil)
+		ji.PodBunches[defaultPodBunch] = NewPodBunchInfo(defaultPodBunch, ji.UID, nil, nil)
 	}
 	return ji.PodBunches[defaultPodBunch]
 }
@@ -1131,11 +1131,10 @@ func (ji *JobInfo) getOrCreatePodBunch(ti *TaskInfo) *PodBunchInfo {
 	}
 
 	for _, policy := range ji.PodGroup.Spec.BunchPolicy {
-		matchId := getPodBunchMatchId(policy, ti.Pod)
-		if matchId != "" {
-			bunchID := BunchID(fmt.Sprintf("%s/%s", ji.UID, matchId))
+		if matchValues := getPodBunchMatchValues(policy, ti.Pod); len(matchValues) > 0 {
+			bunchID := getPodBunchId(ji.UID, policy.Name, matchValues)
 			if _, found := ji.PodBunches[bunchID]; !found {
-				ji.PodBunches[bunchID] = NewPodBunchInfo(bunchID, ji.UID, &policy)
+				ji.PodBunches[bunchID] = NewPodBunchInfo(bunchID, ji.UID, &policy, matchValues)
 			}
 			return ji.PodBunches[bunchID]
 		}

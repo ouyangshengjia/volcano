@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"hash/fnv"
+	"strconv"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -18,7 +19,8 @@ type PodBunchInfo struct {
 	UID BunchID
 	Job JobID
 
-	Priority int32 // determined by the highest priority task in the podBunch
+	Priority   int32 // determined by the highest priority task in the podBunch
+	MatchIndex int   // the first label value match to the pods in the podBunch
 
 	Tasks           map[TaskID]*TaskInfo
 	TaskStatusIndex map[TaskStatus]TasksMap
@@ -29,13 +31,18 @@ type PodBunchInfo struct {
 	networkTopology *scheduling.NetworkTopologySpec
 }
 
-func NewPodBunchInfo(uid BunchID, job JobID, policy *scheduling.BunchPolicySpec) *PodBunchInfo {
+func NewPodBunchInfo(uid BunchID, job JobID, policy *scheduling.BunchPolicySpec, matchValues []string) *PodBunchInfo {
 	pbi := &PodBunchInfo{
 		UID: uid,
 		Job: job,
 	}
 	if policy != nil && policy.NetworkTopology != nil {
 		pbi.networkTopology = policy.NetworkTopology.DeepCopy()
+	}
+	if len(matchValues) > 0 {
+		if v, err := strconv.Atoi(matchValues[0]); err == nil {
+			pbi.MatchIndex = v
+		}
 	}
 	return pbi
 }
@@ -105,27 +112,63 @@ func (pbi *PodBunchInfo) getTaskHighestPriority() int32 {
 	return highestPriority
 }
 
-func getPodBunchMatchId(policy scheduling.BunchPolicySpec, pod *v1.Pod) string {
+func getPodBunchMatchValues(policy scheduling.BunchPolicySpec, pod *v1.Pod) []string {
 	if len(policy.MatchPolicy) == 0 || pod.Labels == nil {
-		return ""
+		return nil
 	}
 
-	values := make([]string, 0, len(policy.MatchPolicy)+1)
-	values = append(values, policy.Name)
+	values := make([]string, 0, len(policy.MatchPolicy))
 	for _, p := range policy.MatchPolicy {
 		value, ok := pod.Labels[p.LabelKey]
 		if !ok || value == "" {
-			return ""
+			return nil
 		}
 		values = append(values, value)
 	}
+	return values
+}
 
-	join := strings.Join(values, "-")
-	if len(join) <= 128 {
-		return join
+func getPodBunchId(job JobID, policy string, matchValues []string) BunchID {
+	id := strings.Join(matchValues, "-")
+	if len(id) > 128 {
+		hasher := fnv.New32a()
+		_, _ = hasher.Write([]byte(id))
+		id = rand.SafeEncodeString(fmt.Sprint(hasher.Sum32())) // todo handle collision
 	}
+	return BunchID(fmt.Sprintf("%s/%s-%s", job, policy, id))
+}
 
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(join))
-	return rand.SafeEncodeString(fmt.Sprint(hasher.Sum32())) // todo handle collision
+func (pbi *PodBunchInfo) IsReady() bool {
+	return pbi.ReadyTaskNum()+pbi.PendingBestEffortTaskNum() >= int32(len(pbi.Tasks)) // todo the length of tasks will change
+}
+
+func (pbi *PodBunchInfo) IsPipelined() bool {
+	return pbi.WaitingTaskNum()+pbi.ReadyTaskNum()+pbi.PendingBestEffortTaskNum() >= int32(len(pbi.Tasks))
+}
+
+// ReadyTaskNum returns the number of tasks that are ready or that is best-effort.
+func (pbi *PodBunchInfo) ReadyTaskNum() int32 {
+	occupied := 0
+	occupied += len(pbi.TaskStatusIndex[Bound])
+	occupied += len(pbi.TaskStatusIndex[Binding])
+	occupied += len(pbi.TaskStatusIndex[Running])
+	occupied += len(pbi.TaskStatusIndex[Allocated])
+	occupied += len(pbi.TaskStatusIndex[Succeeded])
+
+	return int32(occupied)
+}
+
+func (pbi *PodBunchInfo) PendingBestEffortTaskNum() int32 {
+	count := 0
+	for _, task := range pbi.TaskStatusIndex[Pending] {
+		if task.BestEffort {
+			count++
+		}
+	}
+	return int32(count)
+}
+
+// WaitingTaskNum returns the number of tasks that are pipelined.
+func (pbi *PodBunchInfo) WaitingTaskNum() int32 {
+	return int32(len(pbi.TaskStatusIndex[Pipelined]))
 }
