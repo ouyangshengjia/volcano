@@ -700,6 +700,7 @@ func (ji *JobInfo) Clone() *JobInfo {
 		Preemptable:           ji.Preemptable,
 		RevocableZone:         ji.RevocableZone,
 		Budget:                ji.Budget.Clone(),
+		AllocatedHyperNode:    ji.AllocatedHyperNode,
 		PodBunches:            map[BunchID]*PodBunchInfo{},
 		TaskToPodBunch:        map[TaskID]BunchID{},
 	}
@@ -711,6 +712,14 @@ func (ji *JobInfo) Clone() *JobInfo {
 	}
 	for _, task := range ji.Tasks {
 		info.AddTaskInfo(task.Clone())
+	}
+
+	for bunchID, podBunch := range ji.PodBunches {
+		if pbi, found := info.PodBunches[bunchID]; found {
+			pbi.AllocatedHyperNode = podBunch.AllocatedHyperNode
+		} else {
+			klog.Errorf("Failed to clone podBunch %s for job %s", podBunch.UID, ji.UID)
+		}
 	}
 
 	return info
@@ -1162,19 +1171,22 @@ func (ji *JobInfo) deleteTaskFromPodBunch(ti *TaskInfo) {
 	delete(ji.TaskToPodBunch, ti.UID)
 }
 
-// ContainsRealPodBunch returns whether the job has any other podBunches besides the virtual default podBunch
-func (ji *JobInfo) ContainsRealPodBunch() bool {
-	for bunchID := range ji.PodBunches {
-		if bunchID != ji.DefaultPodBunchID() {
-			return true
-		}
+// ContainsBunchPolicy returns whether the job has any other podBunches besides the virtual default podBunch
+func (ji *JobInfo) ContainsBunchPolicy() bool {
+	if ji.PodGroup == nil {
+		return false
 	}
-	return false
+	return len(ji.PodGroup.Spec.BunchPolicy) > 0
 }
 
 func (ji *JobInfo) ContainsHardTopologyBunch() bool {
-	for _, pbi := range ji.PodBunches {
-		if hard, _ := pbi.IsHardTopologyMode(); hard {
+	if ji.PodGroup == nil {
+		return false
+	}
+
+	for _, policy := range ji.PodGroup.Spec.BunchPolicy {
+		if policy.NetworkTopology != nil && policy.NetworkTopology.Mode == scheduling.HardNetworkTopologyMode &&
+			policy.NetworkTopology.HighestTierAllowed != nil {
 			return true
 		}
 	}

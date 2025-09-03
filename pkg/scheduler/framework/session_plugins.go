@@ -368,7 +368,7 @@ func (ssn *Session) Allocatable(queue *api.QueueInfo, candidate *api.TaskInfo) b
 }
 
 func (ssn *Session) PodBunchReady(job *api.JobInfo, podBunch *api.PodBunchInfo) bool {
-	if !job.ContainsRealPodBunch() {
+	if !job.ContainsBunchPolicy() {
 		return ssn.JobReady(job)
 	}
 
@@ -392,7 +392,7 @@ func (ssn *Session) PodBunchReady(job *api.JobInfo, podBunch *api.PodBunchInfo) 
 }
 
 func (ssn *Session) PodBunchPipelined(job *api.JobInfo, podBunch *api.PodBunchInfo) bool {
-	if !job.ContainsRealPodBunch() {
+	if !job.ContainsBunchPolicy() {
 		return ssn.JobPipelined(job)
 	}
 
