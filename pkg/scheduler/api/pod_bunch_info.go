@@ -33,8 +33,11 @@ type PodBunchInfo struct {
 
 func NewPodBunchInfo(uid BunchID, job JobID, policy *scheduling.BunchPolicySpec, matchValues []string) *PodBunchInfo {
 	pbi := &PodBunchInfo{
-		UID: uid,
-		Job: job,
+		UID:             uid,
+		Job:             job,
+		Tasks:           make(map[TaskID]*TaskInfo),
+		TaskStatusIndex: make(map[TaskStatus]TasksMap),
+		taskPriorities:  make(map[int32]sets.Set[TaskID]),
 	}
 	if policy != nil && policy.NetworkTopology != nil {
 		pbi.networkTopology = policy.NetworkTopology.DeepCopy()

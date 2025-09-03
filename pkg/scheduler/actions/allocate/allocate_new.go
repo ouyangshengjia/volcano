@@ -73,9 +73,10 @@ func (alloc *Action) buildAllocateContext() *allocateContext {
 	ssn := alloc.session
 
 	actx := &allocateContext{
-		queues:       util.NewPriorityQueue(ssn.QueueOrderFn), // queues sort queues by QueueOrderFn.
-		jobsByQueue:  make(map[api.QueueID]*util.PriorityQueue),
-		jobWorksheet: make(map[api.JobID]*JobWorksheet),
+		queues:              util.NewPriorityQueue(ssn.QueueOrderFn), // queues sort queues by QueueOrderFn.
+		jobsByQueue:         make(map[api.QueueID]*util.PriorityQueue),
+		jobWorksheet:        make(map[api.JobID]*JobWorksheet),
+		tasksNoHardTopology: make(map[api.JobID]*util.PriorityQueue),
 	}
 
 	for _, job := range ssn.Jobs {
