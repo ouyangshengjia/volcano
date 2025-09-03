@@ -77,6 +77,7 @@ type Session struct {
 	// PodGroupOldState contains podgroup status and annotations during schedule
 	// This should not be mutated after initiated
 	PodGroupOldState *api.PodGroupOldState
+	JobUpdateRecords map[api.JobID]*JobUpdateRecord
 
 	Jobs           map[api.JobID]*api.JobInfo
 	Nodes          map[string]*api.NodeInfo
@@ -219,7 +220,7 @@ func openSession(cache cache.Cache) *Session {
 
 	ssn.Jobs = snapshot.Jobs
 	for _, job := range ssn.Jobs {
-		fixAllocatedHyperNode(job, snapshot.HyperNodes, snapshot.RealNodesSet)
+		ssn.fixAllocatedHyperNode(job, snapshot.HyperNodes, snapshot.RealNodesSet)
 		if job.PodGroup != nil {
 			ssn.PodGroupOldState.Status[job.UID] = *job.PodGroup.Status.DeepCopy()
 			ssn.PodGroupOldState.Annotations[job.UID] = maps.Clone(job.PodGroup.GetAnnotations())
@@ -282,12 +283,13 @@ func (ssn *Session) addClusterRootHyperNode(nodes []*api.NodeInfo) {
 	ssn.RealNodesList[rootHni.Name] = nodes
 }
 
-func fixAllocatedHyperNode(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap, nodesByHyperNode map[string]sets.Set[string]) {
+func (ssn *Session) fixAllocatedHyperNode(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap, nodesByHyperNode map[string]sets.Set[string]) {
 	// remove job AllocatedHyperNode if invalid
 	if job.AllocatedHyperNode != "" {
 		if _, found := hyperNodes[job.AllocatedHyperNode]; !found {
 			klog.V(3).InfoS("remove invalid job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", job.AllocatedHyperNode)
 			job.AllocatedHyperNode = ""
+			ssn.RecordJobUpdate(job)
 		}
 	}
 
@@ -297,6 +299,7 @@ func fixAllocatedHyperNode(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap, no
 			if _, found := hyperNodes[podBunch.AllocatedHyperNode]; !found {
 				klog.V(3).InfoS("remove invalid podBunch allocated hyperNode", "podBunch", podBunch.UID, "AllocatedHyperNode", podBunch.AllocatedHyperNode)
 				podBunch.AllocatedHyperNode = ""
+				ssn.RecordPodBunchUpdate(podBunch)
 			}
 		}
 	}
@@ -338,6 +341,7 @@ func fixAllocatedHyperNode(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap, no
 		}
 		minimumHyperNode := getMinimumHyperNode(podBunchAllocatedHyperNode, nodesByHyperNode)
 		podBunch.AllocatedHyperNode = minimumHyperNode
+		ssn.RecordPodBunchUpdate(podBunch)
 		klog.V(3).InfoS("update podBunch allocated hyperNode", "podBunch", podBunch.UID, "AllocatedHyperNode", minimumHyperNode)
 	}
 
@@ -357,6 +361,7 @@ func fixAllocatedHyperNode(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap, no
 		}
 	}
 	job.AllocatedHyperNode = lca
+	ssn.RecordJobUpdate(job)
 	klog.V(3).InfoS("update job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", lca)
 }
 
@@ -932,6 +937,29 @@ func (ssn *Session) SharedDRAManager() k8sframework.SharedDRAManager {
 	return ssn.cache.SharedDRAManager()
 }
 
+func (ssn *Session) RecordJobUpdate(ji *api.JobInfo) {
+	if r, found := ssn.JobUpdateRecords[ji.UID]; found {
+		r.allocatedHyperNode = ji.AllocatedHyperNode
+	} else {
+		ssn.JobUpdateRecords[ji.UID] = &JobUpdateRecord{
+			allocatedHyperNode:         ji.AllocatedHyperNode,
+			podBunchAllocatedHyperNode: make(map[api.BunchID]string),
+		}
+	}
+}
+
+func (ssn *Session) RecordPodBunchUpdate(pbi *api.PodBunchInfo) {
+	if r, found := ssn.JobUpdateRecords[pbi.Job]; found {
+		r.podBunchAllocatedHyperNode[pbi.UID] = pbi.AllocatedHyperNode
+	} else {
+		ssn.JobUpdateRecords[pbi.Job] = &JobUpdateRecord{
+			podBunchAllocatedHyperNode: map[api.BunchID]string{
+				pbi.UID: pbi.AllocatedHyperNode,
+			},
+		}
+	}
+}
+
 // String return nodes and jobs information in the session
 func (ssn *Session) String() string {
 	msg := fmt.Sprintf("Session %v: \n", ssn.UID)
@@ -945,4 +973,9 @@ func (ssn *Session) String() string {
 	}
 
 	return msg
+}
+
+type JobUpdateRecord struct {
+	allocatedHyperNode         string
+	podBunchAllocatedHyperNode map[api.BunchID]string
 }

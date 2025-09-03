@@ -4,6 +4,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"volcano.sh/volcano/pkg/scheduler/api"
+	"volcano.sh/volcano/pkg/scheduler/framework"
 )
 
 type Decision struct {
@@ -32,16 +33,19 @@ func (d *Decision) SavePodBunchDecision(job api.JobID, hyperNodeForJob string, p
 	d.podBunchDecisions[job][hyperNodeForJob][podBunch] = hyperNodeForPodBunch
 }
 
-func (d *Decision) UpdateDecisionToJob(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap) {
+func (d *Decision) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo, hyperNodes api.HyperNodeInfoMap) {
 	hyperNodeForJob := d.jobDecisions[job.UID]
 	if hyperNodeForJob == "" {
 		return
 	}
 
 	jobAllocatedHyperNode := hyperNodes.GetLCAHyperNode(job.AllocatedHyperNode, hyperNodeForJob)
-	klog.V(3).InfoS("update allocated hyperNode for job", "job", job.UID,
-		"old", job.AllocatedHyperNode, "new", jobAllocatedHyperNode)
-	job.AllocatedHyperNode = jobAllocatedHyperNode
+	if job.AllocatedHyperNode != jobAllocatedHyperNode {
+		klog.V(3).InfoS("update allocated hyperNode for job", "job", job.UID,
+			"old", job.AllocatedHyperNode, "new", jobAllocatedHyperNode)
+		job.AllocatedHyperNode = jobAllocatedHyperNode
+		ssn.RecordJobUpdate(job)
+	}
 
 	for bunchId, hyperNode := range d.podBunchDecisions[job.UID][hyperNodeForJob] {
 		podBunch, found := job.PodBunches[bunchId]
@@ -50,8 +54,11 @@ func (d *Decision) UpdateDecisionToJob(job *api.JobInfo, hyperNodes api.HyperNod
 			continue
 		}
 		allocatedHyperNode := hyperNodes.GetLCAHyperNode(podBunch.AllocatedHyperNode, hyperNode)
-		klog.V(3).InfoS("update allocated hyperNode for podBunch", "podBunch", podBunch.UID,
-			"old", podBunch.AllocatedHyperNode, "new", allocatedHyperNode)
-		podBunch.AllocatedHyperNode = allocatedHyperNode
+		if podBunch.AllocatedHyperNode != allocatedHyperNode {
+			klog.V(3).InfoS("update allocated hyperNode for podBunch", "podBunch", podBunch.UID,
+				"old", podBunch.AllocatedHyperNode, "new", allocatedHyperNode)
+			podBunch.AllocatedHyperNode = allocatedHyperNode
+			ssn.RecordPodBunchUpdate(podBunch)
+		}
 	}
 }

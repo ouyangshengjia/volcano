@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"volcano.sh/apis/pkg/apis/scheduling"
+
 	"volcano.sh/volcano/pkg/scheduler/api"
 )
 
@@ -117,7 +118,8 @@ func (ju *JobUpdater) updateJob(index int) {
 	oldStatus, found := ssn.PodGroupOldState.Status[job.UID]
 	updatePGStatus := !found || isPodGroupStatusUpdated(job.PodGroup.Status, oldStatus)
 	updatePGAnnotations := ju.isJobAllocatedHyperNodeChanged(job)
-	if _, err := ssn.cache.UpdateJobStatus(job, updatePGStatus, updatePGAnnotations); err != nil {
+	_, updateJobInfo := ssn.JobUpdateRecords[job.UID]
+	if _, err := ssn.cache.UpdateJobStatus(job, updatePGStatus, updatePGAnnotations, updateJobInfo); err != nil {
 		klog.Errorf("Failed to update job <%s/%s>: %v",
 			job.Namespace, job.Name, err)
 	}
