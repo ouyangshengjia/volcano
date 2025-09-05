@@ -193,7 +193,7 @@ func (alloc *Action) allocateResources(queues *util.PriorityQueue, jobsMap map[a
 				pendingTasks[job.UID] = tasksQueue
 			}
 		} else {
-			stmt, _ = alloc.allocateResourcesForTasks(job.PodBunches[api.BunchID(job.UID)], tasks, framework.ClusterRootHyperNode)
+			stmt, _ = alloc.allocateResourcesForTasks(job.PodBunches[api.BunchID(job.UID)], tasks, framework.ClusterTopHyperNode)
 			// There are still left tasks that need to be allocated when min available < replicas, put the job back
 			if tasks.Len() > 0 {
 				jobs.Push(job)

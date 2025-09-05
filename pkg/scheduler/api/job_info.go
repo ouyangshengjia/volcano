@@ -850,6 +850,16 @@ func (ji *JobInfo) PendingBestEffortTaskNum() int32 {
 	return int32(count)
 }
 
+func (ji *JobInfo) AllocatedTaskNum() int32 {
+	count := 0
+	for status, tasks := range ji.TaskStatusIndex {
+		if AllocatedStatus(status) {
+			count += len(tasks)
+		}
+	}
+	return int32(count)
+}
+
 // FitFailedRoles returns the job roles' failed fit records
 func (ji *JobInfo) FitFailedRoles() map[string]struct{} {
 	failedRoles := map[string]struct{}{}
@@ -1108,6 +1118,11 @@ func (ji *JobInfo) IsSoftTopologyMode() bool {
 	return ji.PodGroup.Spec.NetworkTopology.Mode == scheduling.SoftNetworkTopologyMode
 }
 
+// WithNetworkTopology returns whether the job has configured network topologies
+func (ji *JobInfo) WithNetworkTopology() bool {
+	return ji.PodGroup != nil && ji.PodGroup.Spec.NetworkTopology != nil
+}
+
 // ResetFitErr will set job and node fit err to nil.
 func (ji *JobInfo) ResetFitErr() {
 	ji.JobFitErrors = ""
@@ -1179,6 +1194,7 @@ func (ji *JobInfo) ContainsBunchPolicy() bool {
 	return len(ji.PodGroup.Spec.BunchPolicy) > 0
 }
 
+// ContainsHardTopologyBunch returns whether the podBunches in the job contain hard network topology
 func (ji *JobInfo) ContainsHardTopologyBunch() bool {
 	if ji.PodGroup == nil {
 		return false
@@ -1193,9 +1209,29 @@ func (ji *JobInfo) ContainsHardTopologyBunch() bool {
 	return false
 }
 
+// ContainsHardTopology returns whether the job and the podBunches in the job contain hard network topology
 func (ji *JobInfo) ContainsHardTopology() bool {
 	if hard, _ := ji.IsHardTopologyMode(); hard || ji.ContainsHardTopologyBunch() {
 		return true
 	}
 	return false
+}
+
+// ContainsNetworkTopologyBunch returns whether the podBunches in the job contain network topology
+func (ji *JobInfo) ContainsNetworkTopologyBunch() bool {
+	if ji.PodGroup == nil {
+		return false
+	}
+
+	for _, policy := range ji.PodGroup.Spec.BunchPolicy {
+		if policy.NetworkTopology != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsNetworkTopology returns whether the job and the podBunches in the job contain network topology
+func (ji *JobInfo) ContainsNetworkTopology() bool {
+	return ji.WithNetworkTopology() || ji.ContainsNetworkTopologyBunch()
 }

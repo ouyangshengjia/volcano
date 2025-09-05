@@ -194,7 +194,7 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 			jobWorksheet := actx.jobWorksheet[job.UID]
 			klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "podBunchNum", jobWorksheet.podBunches.Len())
 
-			stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterRootHyperNode])
+			stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterTopHyperNode])
 			if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
 				stmt.Commit()
 				alloc.decision.UpdateDecisionToJob(ssn, job, ssn.HyperNodes)
@@ -209,7 +209,7 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 			tasks, tasksExist := actx.tasksNoHardTopology[job.UID]
 			if pbExist && tasksExist {
 				klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "taskNum", tasks.Len())
-				stmt, _ := alloc.allocateResourcesForTasks(podBunch, tasks, framework.ClusterRootHyperNode)
+				stmt, _ := alloc.allocateResourcesForTasks(podBunch, tasks, framework.ClusterTopHyperNode)
 				// There are still left tasks that need to be allocated when min available < replicas, put the job back
 				if tasks.Len() > 0 {
 					jobs.Push(job)
@@ -335,8 +335,9 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 			// Clone podBunchWorksheet and rest podBunch's fit err to make sure it's a clean cache when everytime filter a hyperNode and do not affect each other between hyperNodes.
 			job.ResetPodBunchFitErr(podBunch)
 			podBunchWorksheetCopy := podBunchWorksheet.Clone()
-			klog.V(3).InfoS("Try to allocate resource for podBunch in hyperNode", "job", podBunch.Job, "podBunch", podBunch.UID, "hyperNode", hyperNode.Name)
 
+			klog.V(3).InfoS("Try to allocate resource for podBunch", "job", podBunch.Job,
+				"podBunch", podBunch.UID, "taskNum", podBunchWorksheetCopy.tasks.Len(), "hyperNode", hyperNode.Name)
 			stmt, totalNodeScore := alloc.allocateResourcesForTasks(podBunch, podBunchWorksheetCopy.tasks, hyperNode.Name)
 
 			if stmt != nil && len(stmt.Operations()) > 0 {

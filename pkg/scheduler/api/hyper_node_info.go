@@ -727,6 +727,13 @@ func (hnim HyperNodeInfoMap) getParent(name string) string {
 
 // GetLCAHyperNode returns the least common ancestor hypernode of the hypernode to be allocated and job's already allocated hypernode
 func (hnim HyperNodeInfoMap) GetLCAHyperNode(hypernode, jobHyperNode string) string {
+	if hypernode == "" {
+		return jobHyperNode
+	}
+	if jobHyperNode == "" {
+		return hypernode
+	}
+
 	hyperNodeAncestors := hnim.GetAncestors(hypernode)
 	jobHyperNodeAncestors := hnim.GetAncestors(jobHyperNode)
 

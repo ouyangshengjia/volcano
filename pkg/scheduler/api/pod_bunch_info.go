@@ -67,7 +67,8 @@ func (pbi *PodBunchInfo) IsSoftTopologyMode() bool {
 	return pbi.networkTopology.Mode == scheduling.SoftNetworkTopologyMode
 }
 
-func (pbi *PodBunchInfo) ContainsNetworkTopology() bool {
+// WithNetworkTopology returns whether the podBunch has configured network topologies
+func (pbi *PodBunchInfo) WithNetworkTopology() bool {
 	return pbi.networkTopology != nil
 }
 
@@ -178,4 +179,14 @@ func (pbi *PodBunchInfo) PendingBestEffortTaskNum() int32 {
 // WaitingTaskNum returns the number of tasks that are pipelined.
 func (pbi *PodBunchInfo) WaitingTaskNum() int32 {
 	return int32(len(pbi.TaskStatusIndex[Pipelined]))
+}
+
+func (pbi *PodBunchInfo) AllocatedTaskNum() int32 {
+	count := 0
+	for status, tasks := range pbi.TaskStatusIndex {
+		if AllocatedStatus(status) {
+			count += len(tasks)
+		}
+	}
+	return int32(count)
 }
