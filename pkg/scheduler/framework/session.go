@@ -268,34 +268,34 @@ func openSession(cache cache.Cache) *Session {
 	return ssn
 }
 
-// addClusterTopHyperNode adds a virtual root hyperNode of all hyperNodes in the cluster into the session
+// addClusterTopHyperNode adds a virtual top hyperNode of all hyperNodes in the cluster into the session
 func (ssn *Session) addClusterTopHyperNode(nodes []*api.NodeInfo) {
-	rootTier := 1
+	topTier := 1
 	for tier := range ssn.HyperNodesSetByTier {
-		if tier >= rootTier {
-			rootTier = tier + 1 // rootTier should be greater than the highest tier of real hyperNodes
+		if tier >= topTier {
+			topTier = tier + 1 // topTier should be greater than the highest tier of real hyperNodes
 		}
 	}
 
-	rootHn := &topologyv1alpha1.HyperNode{}
-	rootHn.Name = ClusterTopHyperNode
-	rootHn.Spec.Tier = rootTier
-	rootHni := api.NewHyperNodeInfo(rootHn)
+	topHn := &topologyv1alpha1.HyperNode{}
+	topHn.Name = ClusterTopHyperNode
+	topHn.Spec.Tier = topTier
+	topHni := api.NewHyperNodeInfo(topHn)
 
 	for _, hni := range ssn.HyperNodes {
 		if hni.Parent != "" {
 			continue
 		}
-		hni.Parent = rootHn.Name
-		rootHni.Children.Insert(hni.Name)
+		hni.Parent = topHn.Name
+		topHni.Children.Insert(hni.Name)
 	}
 
-	ssn.HyperNodes[rootHni.Name] = rootHni
-	ssn.HyperNodesSetByTier[rootHni.Tier()] = sets.New(rootHni.Name)
-	ssn.RealNodesList[rootHni.Name] = nodes
-	ssn.RealNodesSet[rootHni.Name] = sets.New[string]()
+	ssn.HyperNodes[topHni.Name] = topHni
+	ssn.HyperNodesSetByTier[topHni.Tier()] = sets.New(topHni.Name)
+	ssn.RealNodesList[topHni.Name] = nodes
+	ssn.RealNodesSet[topHni.Name] = sets.New[string]()
 	for _, node := range nodes {
-		ssn.RealNodesSet[rootHni.Name].Insert(node.Name)
+		ssn.RealNodesSet[topHni.Name].Insert(node.Name)
 	}
 }
 
@@ -305,17 +305,19 @@ func (ssn *Session) removeInvalidAllocatedHyperNode(job *api.JobInfo, hyperNodes
 	// remove job AllocatedHyperNode if invalid
 	if job.AllocatedHyperNode != "" {
 		remove := false
+		var reason string
 		if _, found := hyperNodes[job.AllocatedHyperNode]; !found {
-			klog.V(3).InfoS("remove non-existent allocated hyperNode for job", "job", job.UID, "AllocatedHyperNode", job.AllocatedHyperNode)
 			remove = true
+			reason = "allocated hyperNode not exist"
 		}
 		if job.AllocatedTaskNum() == 0 {
-			klog.V(3).InfoS("remove allocated hyperNode for job because there is no allocated task", "job", job.UID, "AllocatedHyperNode", job.AllocatedHyperNode)
 			remove = true
+			reason = "there is no allocated task in the job"
 		}
 		if remove {
 			job.AllocatedHyperNode = ""
 			ssn.RecordJobUpdate(job)
+			klog.V(3).InfoS("remove allocated hyperNode for job", "job", job.UID, "AllocatedHyperNode", job.AllocatedHyperNode, "reason", reason)
 		}
 	}
 
@@ -323,24 +325,27 @@ func (ssn *Session) removeInvalidAllocatedHyperNode(job *api.JobInfo, hyperNodes
 	for _, podBunch := range job.PodBunches {
 		if podBunch.AllocatedHyperNode != "" {
 			remove := false
+			var reason string
 			if _, found := hyperNodes[podBunch.AllocatedHyperNode]; !found {
-				klog.V(3).InfoS("remove non-existent allocated hyperNode for podBunch", "podBunch", podBunch.UID, "AllocatedHyperNode", podBunch.AllocatedHyperNode)
 				remove = true
+				reason = "allocated hyperNode not exist"
 			}
 			if podBunch.AllocatedTaskNum() == 0 {
-				klog.V(3).InfoS("remove allocated hyperNode for podBunch because there is no allocated task", "podBunch", podBunch.UID, "AllocatedHyperNode", podBunch.AllocatedHyperNode)
 				remove = true
+				reason = "there is no allocated task in the podBunch"
 			}
 			if remove {
 				podBunch.AllocatedHyperNode = ""
 				ssn.RecordPodBunchUpdate(podBunch)
+				klog.V(3).InfoS("remove allocated hyperNode for podBunch", "podBunch", podBunch.UID, "AllocatedHyperNode", podBunch.AllocatedHyperNode, "reason", reason)
 			}
 		}
 	}
 }
 
 // recoverAllocatedHyperNode recover the allocated hyperNode for the job and podBunches in the job with empty AllocatedHyperNode field.
-// If scheduler reboot, the allocated hyperNode of job will be lost. We recover this information through the nodes that tasks are running on.
+// When the scheduler reboot, the allocated hyperNode of job will be lost.
+// We recover this information through the nodes that tasks are running on.
 func (ssn *Session) recoverAllocatedHyperNode(job *api.JobInfo, hyperNodeSet sets.Set[string], hyperNodes api.HyperNodeInfoMap, nodesByHyperNode map[string]sets.Set[string]) {
 	if !job.ContainsNetworkTopology() {
 		return
