@@ -19,8 +19,9 @@ type PodBunchInfo struct {
 	UID BunchID
 	Job JobID
 
-	Priority   int32 // determined by the highest priority task in the podBunch
-	MatchIndex int   // the first label value match to the pods in the podBunch
+	MinAvailable int32
+	Priority     int32 // determined by the highest priority task in the podBunch
+	MatchIndex   int   // the first label value match to the pods in the podBunch
 
 	Tasks           map[TaskID]*TaskInfo
 	TaskStatusIndex map[TaskStatus]TasksMap
@@ -35,12 +36,18 @@ func NewPodBunchInfo(uid BunchID, job JobID, policy *scheduling.BunchPolicySpec,
 	pbi := &PodBunchInfo{
 		UID:             uid,
 		Job:             job,
+		MinAvailable:    1,
 		Tasks:           make(map[TaskID]*TaskInfo),
 		TaskStatusIndex: make(map[TaskStatus]TasksMap),
 		taskPriorities:  make(map[int32]sets.Set[TaskID]),
 	}
-	if policy != nil && policy.NetworkTopology != nil {
-		pbi.networkTopology = policy.NetworkTopology.DeepCopy()
+	if policy != nil {
+		if policy.BunchSize != nil {
+			pbi.MinAvailable = *policy.BunchSize
+		}
+		if policy.NetworkTopology != nil {
+			pbi.networkTopology = policy.NetworkTopology.DeepCopy()
+		}
 	}
 	if len(matchValues) > 0 {
 		if v, err := strconv.Atoi(matchValues[0]); err == nil {
@@ -147,11 +154,11 @@ func getPodBunchId(job JobID, policy string, matchValues []string) BunchID {
 }
 
 func (pbi *PodBunchInfo) IsReady() bool {
-	return pbi.ReadyTaskNum()+pbi.PendingBestEffortTaskNum() >= int32(len(pbi.Tasks)) // todo the length of tasks will change
+	return pbi.ReadyTaskNum()+pbi.PendingBestEffortTaskNum() >= pbi.MinAvailable
 }
 
 func (pbi *PodBunchInfo) IsPipelined() bool {
-	return pbi.WaitingTaskNum()+pbi.ReadyTaskNum()+pbi.PendingBestEffortTaskNum() >= int32(len(pbi.Tasks))
+	return pbi.WaitingTaskNum()+pbi.ReadyTaskNum()+pbi.PendingBestEffortTaskNum() >= pbi.MinAvailable
 }
 
 // ReadyTaskNum returns the number of tasks that are ready or that is best-effort.
