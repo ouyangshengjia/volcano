@@ -272,8 +272,12 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 				}
 			}
 
+			mergedStmt := framework.SaveOperations(stmtList...)
+			if len(mergedStmt.Operations()) == 0 {
+				continue // skip recording this empty solution
+			}
 			if ssn.JobReady(job) || ssn.JobPipelined(job) {
-				stmtBackup[hyperNode.Name] = framework.SaveOperations(stmtList...)     // backup successful solution
+				stmtBackup[hyperNode.Name] = mergedStmt                                // backup successful solution
 				jobWorksheetsBackup[hyperNode.Name] = jobWorksheetCopy                 // backup remains podBunches
 				podBunchesAllocationScores[hyperNode.Name] = podBunchesAllocationScore // save the podBunches allocation score of the job
 			}
