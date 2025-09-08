@@ -404,32 +404,28 @@ func (hni *HyperNodesInfo) GetRegexOrLabelMatchLeafHyperNodes() sets.Set[string]
 
 // addChild adds the HyperNode member to the parent and sets the parent of a HyperNode member.
 func (hni *HyperNodesInfo) addChild(parent, member string) error {
-	p, ok := hni.hyperNodes[parent]
+	parentHn, ok := hni.hyperNodes[parent]
 	if !ok {
 		hni.builtErrHyperNode = parent
 		return fmt.Errorf("parent HyperNode %s not exists in cache", parent)
 	}
 
-	hn, ok := hni.hyperNodes[member]
+	childHn, ok := hni.hyperNodes[member]
 	if !ok {
 		klog.InfoS("HyperNode not exists in cache, maybe not created or not be watched, will set parent first", "name", member, "parent", parent)
-		hn = NewHyperNodeInfo(&topologyv1alpha1.HyperNode{ObjectMeta: metav1.ObjectMeta{
+		childHn = NewHyperNodeInfo(&topologyv1alpha1.HyperNode{ObjectMeta: metav1.ObjectMeta{
 			Name: member,
 		}})
-		hni.hyperNodes[member] = hn
+		hni.hyperNodes[member] = childHn
 	}
 
-	currentParent := hn.Parent
-	if currentParent == "" {
-		hn.Parent = parent
-		p.Children.Insert(member)
-		return nil
-	}
-
-	if currentParent != parent {
+	if childHn.Parent != "" && childHn.Parent != parent {
 		hni.builtErrHyperNode = parent
-		return fmt.Errorf("HyperNode %s already has a parent %s, and cannot set another parent %s", member, currentParent, parent)
+		return fmt.Errorf("HyperNode %s already has a parent %s, and cannot set another parent %s", member, childHn.Parent, parent)
 	}
+
+	childHn.Parent = parent
+	parentHn.Children.Insert(member)
 
 	return nil
 }

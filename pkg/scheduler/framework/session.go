@@ -247,6 +247,12 @@ func openSession(cache cache.Cache) *Session {
 		ssn.recoverAllocatedHyperNode(job, hyperNodeSet, ssn.HyperNodes, ssn.RealNodesSet)
 	}
 
+	if klog.V(5).Enabled() {
+		for _, hn := range ssn.HyperNodes {
+			klog.InfoS("hyperNode in session", "name", hn.Name, "tier", hn.Tier(), "parent", hn.Parent, "children", hn.Children)
+		}
+	}
+
 	ssn.Nodes = snapshot.Nodes
 	ssn.CSINodesStatus = snapshot.CSINodesStatus
 	ssn.RevocableNodes = snapshot.RevocableNodes

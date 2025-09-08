@@ -192,8 +192,9 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 
 		if job.ContainsHardTopology() {
 			jobWorksheet := actx.jobWorksheet[job.UID]
-			klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "podBunchNum", jobWorksheet.podBunches.Len())
 
+			klog.V(3).InfoS("Try to allocate resource for job contains hard topology", "queue", queue.Name, "job", job.UID,
+				"allocatedHyperNode", job.AllocatedHyperNode, "podBunchNum", jobWorksheet.podBunches.Len())
 			stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterTopHyperNode])
 			if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
 				stmt.Commit()
@@ -256,6 +257,8 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 				podBunch := jobWorksheetCopy.podBunches.Pop().(*api.PodBunchInfo)
 				bunchWorksheet := jobWorksheetCopy.podBunchWorksheets[podBunch.UID]
 
+				klog.V(3).InfoS("Try to allocate resource for podBunch", "job", podBunch.Job,
+					"podBunch", podBunch.UID, "allocatedHyperNode", podBunch.AllocatedHyperNode, "taskNum", bunchWorksheet.tasks.Len())
 				stmt, allocationScore := alloc.allocateForPodBunch(podBunch, bunchWorksheet, hyperNode)
 
 				if stmt != nil && len(stmt.Operations()) > 0 {
@@ -340,7 +343,7 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 			job.ResetPodBunchFitErr(podBunch)
 			podBunchWorksheetCopy := podBunchWorksheet.Clone()
 
-			klog.V(3).InfoS("Try to allocate resource for podBunch", "job", podBunch.Job,
+			klog.V(3).InfoS("Try to allocate resource for tasks in podBunch", "job", podBunch.Job,
 				"podBunch", podBunch.UID, "taskNum", podBunchWorksheetCopy.tasks.Len(), "hyperNode", hyperNode.Name)
 			stmt, totalNodeScore := alloc.allocateResourcesForTasks(podBunch, podBunchWorksheetCopy.tasks, hyperNode.Name)
 
