@@ -408,8 +408,8 @@ func NewJobInfo(uid JobID, tasks ...*TaskInfo) *JobInfo {
 func (ji *JobInfo) UnsetPodGroup() {
 	ji.PodGroup = nil
 
+	clear(ji.PodBunches)
 	for _, task := range ji.Tasks {
-		ji.deleteTaskFromPodBunch(task)
 		ji.addTaskToPodBunch(task)
 	}
 }
@@ -449,8 +449,8 @@ func (ji *JobInfo) SetPodGroup(pg *PodGroup) {
 	ji.PodGroup = pg
 
 	if oldPG == nil || !equality.Semantic.DeepEqual(oldPG.Spec.BunchPolicy, pg.Spec.BunchPolicy) {
+		clear(ji.PodBunches)
 		for _, task := range ji.Tasks {
-			ji.deleteTaskFromPodBunch(task)
 			ji.addTaskToPodBunch(task)
 		}
 	}
@@ -1144,7 +1144,11 @@ func (ji *JobInfo) DefaultPodBunchID() BunchID {
 func (ji *JobInfo) getOrCreateDefaultPodBunch() *PodBunchInfo {
 	defaultPodBunch := ji.DefaultPodBunchID()
 	if _, found := ji.PodBunches[defaultPodBunch]; !found {
-		ji.PodBunches[defaultPodBunch] = NewPodBunchInfo(defaultPodBunch, ji.UID, nil, nil)
+		policy := &scheduling.BunchPolicySpec{}
+		if ji.PodGroup != nil && ji.PodGroup.Spec.NetworkTopology != nil {
+			policy.NetworkTopology = ji.PodGroup.Spec.NetworkTopology.DeepCopy()
+		}
+		ji.PodBunches[defaultPodBunch] = NewPodBunchInfo(defaultPodBunch, ji.UID, policy, nil)
 	}
 	return ji.PodBunches[defaultPodBunch]
 }

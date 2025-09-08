@@ -227,6 +227,9 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 		return [][]*api.HyperNodeInfo{{hyperNode}}
 	})
 	ssn.AddHyperNodeGradientForPodBunchFn(nta.Name(), func(podBunch *api.PodBunchInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
+		if job, found := ssn.Jobs[podBunch.Job]; found && !job.ContainsBunchPolicy() {
+			return [][]*api.HyperNodeInfo{{hyperNode}} // it is unnecessary to try child hyperNode when there is no actual podBunch
+		}
 		if hardMode, highestAllowedTier := podBunch.IsHardTopologyMode(); hardMode {
 			result, err := hyperNodeGradientFn(hyperNode, highestAllowedTier, podBunch.AllocatedHyperNode)
 			if err != nil {
