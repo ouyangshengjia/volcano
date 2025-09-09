@@ -197,3 +197,7 @@ func (pbi *PodBunchInfo) AllocatedTaskNum() int32 {
 	}
 	return int32(count)
 }
+
+func (pbi *PodBunchInfo) CloneStatusFrom(source *PodBunchInfo) {
+	pbi.AllocatedHyperNode = source.AllocatedHyperNode
+}

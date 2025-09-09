@@ -4,7 +4,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"volcano.sh/volcano/pkg/scheduler/api"
-	"volcano.sh/volcano/pkg/scheduler/framework"
 )
 
 type Recorder struct {
@@ -40,7 +39,7 @@ func (d *Recorder) SavePodBunchDecision(job api.JobID, hyperNodeForJob string, p
 	d.podBunchDecisions[job][hyperNodeForJob][podBunch] = hyperNodeForPodBunch
 }
 
-func (d *Recorder) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo, hyperNodes api.HyperNodeInfoMap) {
+func (d *Recorder) UpdateDecisionToJob(job *api.JobInfo, hyperNodes api.HyperNodeInfoMap) {
 	hyperNodeForJob := d.jobDecisions[job.UID]
 	if hyperNodeForJob == "" {
 		return
@@ -51,7 +50,6 @@ func (d *Recorder) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo,
 		klog.V(3).InfoS("update allocated hyperNode for job", "job", job.UID,
 			"old", job.AllocatedHyperNode, "new", jobAllocatedHyperNode)
 		job.AllocatedHyperNode = jobAllocatedHyperNode
-		ssn.RecordJobUpdate(job)
 	}
 
 	for bunchId, hyperNode := range d.podBunchDecisions[job.UID][hyperNodeForJob] {
@@ -65,7 +63,6 @@ func (d *Recorder) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo,
 			klog.V(3).InfoS("update allocated hyperNode for podBunch", "podBunch", podBunch.UID,
 				"old", podBunch.AllocatedHyperNode, "new", allocatedHyperNode)
 			podBunch.AllocatedHyperNode = allocatedHyperNode
-			ssn.RecordPodBunchUpdate(podBunch)
 		}
 	}
 }

@@ -77,7 +77,8 @@ type Session struct {
 	// PodGroupOldState contains podgroup status and annotations during schedule
 	// This should not be mutated after initiated
 	PodGroupOldState *api.PodGroupOldState
-	JobUpdateRecords map[api.JobID]*JobUpdateRecord
+	// DirtyJobs include the jobs that need to flush to SchedulerCache on session close
+	DirtyJobs sets.Set[api.JobID]
 
 	Jobs           map[api.JobID]*api.JobInfo
 	Nodes          map[string]*api.NodeInfo
@@ -172,12 +173,12 @@ func openSession(cache cache.Cache) *Session {
 			Status:      map[api.JobID]scheduling.PodGroupStatus{},
 			Annotations: map[api.JobID]map[string]string{},
 		},
-		JobUpdateRecords: map[api.JobID]*JobUpdateRecord{},
-		Jobs:             map[api.JobID]*api.JobInfo{},
-		Nodes:            map[string]*api.NodeInfo{},
-		CSINodesStatus:   map[string]*api.CSINodeStatusInfo{},
-		RevocableNodes:   map[string]*api.NodeInfo{},
-		Queues:           map[api.QueueID]*api.QueueInfo{},
+		DirtyJobs:      sets.New[api.JobID](),
+		Jobs:           map[api.JobID]*api.JobInfo{},
+		Nodes:          map[string]*api.NodeInfo{},
+		CSINodesStatus: map[string]*api.CSINodeStatusInfo{},
+		RevocableNodes: map[string]*api.NodeInfo{},
+		Queues:         map[api.QueueID]*api.QueueInfo{},
 
 		plugins:                         map[string]Plugin{},
 		jobOrderFns:                     map[string]api.CompareFn{},
@@ -322,7 +323,7 @@ func (ssn *Session) removeInvalidAllocatedHyperNode(job *api.JobInfo, hyperNodes
 		}
 		if remove {
 			job.AllocatedHyperNode = ""
-			ssn.RecordJobUpdate(job)
+			ssn.MarkJobDirty(job.UID)
 			klog.V(3).InfoS("remove allocated hyperNode for job", "job", job.UID, "AllocatedHyperNode", job.AllocatedHyperNode, "reason", reason)
 		}
 	}
@@ -342,7 +343,7 @@ func (ssn *Session) removeInvalidAllocatedHyperNode(job *api.JobInfo, hyperNodes
 			}
 			if remove {
 				podBunch.AllocatedHyperNode = ""
-				ssn.RecordPodBunchUpdate(podBunch)
+				ssn.MarkJobDirty(podBunch.Job)
 				klog.V(3).InfoS("remove allocated hyperNode for podBunch", "podBunch", podBunch.UID, "AllocatedHyperNode", podBunch.AllocatedHyperNode, "reason", reason)
 			}
 		}
@@ -415,7 +416,7 @@ func (ssn *Session) recoverAllocatedHyperNode(job *api.JobInfo, hyperNodeSet set
 		if podBunch.AllocatedHyperNode != minimumHyperNode {
 			podBunchUpdated = true
 			podBunch.AllocatedHyperNode = minimumHyperNode
-			ssn.RecordPodBunchUpdate(podBunch)
+			ssn.MarkJobDirty(podBunch.Job)
 			klog.V(3).InfoS("update podBunch allocated hyperNode", "podBunch", podBunch.UID, "AllocatedHyperNode", minimumHyperNode)
 		}
 	}
@@ -434,7 +435,7 @@ func (ssn *Session) recoverAllocatedHyperNode(job *api.JobInfo, hyperNodeSet set
 			}
 		}
 		job.AllocatedHyperNode = lca
-		ssn.RecordJobUpdate(job)
+		ssn.MarkJobDirty(job.UID)
 		klog.V(3).InfoS("update job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", lca)
 	}
 }
@@ -1011,27 +1012,8 @@ func (ssn *Session) SharedDRAManager() k8sframework.SharedDRAManager {
 	return ssn.cache.SharedDRAManager()
 }
 
-func (ssn *Session) RecordJobUpdate(ji *api.JobInfo) {
-	if r, found := ssn.JobUpdateRecords[ji.UID]; found {
-		r.allocatedHyperNode = ji.AllocatedHyperNode
-	} else {
-		ssn.JobUpdateRecords[ji.UID] = &JobUpdateRecord{
-			allocatedHyperNode:         ji.AllocatedHyperNode,
-			podBunchAllocatedHyperNode: make(map[api.BunchID]string),
-		}
-	}
-}
-
-func (ssn *Session) RecordPodBunchUpdate(pbi *api.PodBunchInfo) {
-	if r, found := ssn.JobUpdateRecords[pbi.Job]; found {
-		r.podBunchAllocatedHyperNode[pbi.UID] = pbi.AllocatedHyperNode
-	} else {
-		ssn.JobUpdateRecords[pbi.Job] = &JobUpdateRecord{
-			podBunchAllocatedHyperNode: map[api.BunchID]string{
-				pbi.UID: pbi.AllocatedHyperNode,
-			},
-		}
-	}
+func (ssn *Session) MarkJobDirty(jobID api.JobID) {
+	ssn.DirtyJobs.Insert(jobID)
 }
 
 // String return nodes and jobs information in the session
@@ -1047,9 +1029,4 @@ func (ssn *Session) String() string {
 	}
 
 	return msg
-}
-
-type JobUpdateRecord struct {
-	allocatedHyperNode         string
-	podBunchAllocatedHyperNode map[api.BunchID]string
 }

@@ -716,7 +716,7 @@ func (ji *JobInfo) Clone() *JobInfo {
 
 	for bunchID, podBunch := range ji.PodBunches {
 		if pbi, found := info.PodBunches[bunchID]; found {
-			pbi.AllocatedHyperNode = podBunch.AllocatedHyperNode
+			pbi.CloneStatusFrom(podBunch)
 		} else {
 			klog.Errorf("Failed to clone podBunch %s for job %s", podBunch.UID, ji.UID)
 		}
