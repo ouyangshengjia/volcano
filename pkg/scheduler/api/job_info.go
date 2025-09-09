@@ -38,8 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/klog/v2"
-
 	"k8s.io/kubernetes/pkg/features"
+	"k8s.io/utils/ptr"
 
 	batch "volcano.sh/apis/pkg/apis/batch/v1alpha1"
 	"volcano.sh/apis/pkg/apis/scheduling"
@@ -861,9 +861,12 @@ func (ji *JobInfo) AllocatedTaskNum() int32 {
 }
 
 // FitFailedRoles returns the job roles' failed fit records
-func (ji *JobInfo) FitFailedRoles() map[string]struct{} {
+func (ji *JobInfo) FitFailedRoles(podBunch BunchID) map[string]struct{} {
 	failedRoles := map[string]struct{}{}
 	for tid := range ji.NodesFitErrors {
+		if ji.TaskToPodBunch[tid] != podBunch {
+			continue
+		}
 		task := ji.Tasks[tid]
 		failedRoles[task.TaskRole] = struct{}{}
 	}
@@ -871,13 +874,13 @@ func (ji *JobInfo) FitFailedRoles() map[string]struct{} {
 }
 
 // TaskHasFitErrors checks if the task has fit errors and can continue try predicating
-func (ji *JobInfo) TaskHasFitErrors(task *TaskInfo) bool {
+func (ji *JobInfo) TaskHasFitErrors(podBunch BunchID, task *TaskInfo) bool {
 	// if the task didn't set the spec key, should not use the cache
 	if len(task.TaskRole) == 0 {
 		return false
 	}
 
-	_, exist := ji.FitFailedRoles()[task.TaskRole]
+	_, exist := ji.FitFailedRoles(podBunch)[task.TaskRole]
 	return exist
 }
 
@@ -895,12 +898,23 @@ func (ji *JobInfo) TaskHasFitErrors(task *TaskInfo) bool {
 //
 //	As the failed predicating role has been pre-checked when it was popped from queue,
 //	this function will only be called at most as the number of roles in this job.
-func (ji *JobInfo) NeedContinueAllocating() bool {
+func (ji *JobInfo) NeedContinueAllocating(bunchID BunchID) bool {
 	// Ensures all tasks must be running; if any pod allocation fails, further execution stops
 	if int(ji.MinAvailable) == len(ji.Tasks) {
 		return false
 	}
-	failedRoles := ji.FitFailedRoles()
+	if podBunch, found := ji.PodBunches[bunchID]; found {
+		if int(podBunch.MinAvailable) >= len(podBunch.Tasks) {
+			return false
+		}
+	}
+
+	// todo: job contains bunch policy does not supports the strategies below
+	if ji.ContainsBunchPolicy() {
+		return true
+	}
+
+	failedRoles := ji.FitFailedRoles(bunchID)
 
 	pending := map[string]int32{}
 	for _, task := range ji.TaskStatusIndex[Pending] {
@@ -1130,10 +1144,9 @@ func (ji *JobInfo) ResetFitErr() {
 }
 
 // ResetPodBunchFitErr will set podBunch's node fit err to nil.
-func (ji *JobInfo) ResetPodBunchFitErr(podBunch *PodBunchInfo) {
+func (ji *JobInfo) ResetPodBunchFitErr(podBunch BunchID) {
 	maps.DeleteFunc(ji.NodesFitErrors, func(taskID TaskID, _ *FitErrors) bool {
-		_, found := podBunch.Tasks[taskID]
-		return found
+		return ji.TaskToPodBunch[taskID] == podBunch
 	})
 }
 
@@ -1145,6 +1158,9 @@ func (ji *JobInfo) getOrCreateDefaultPodBunch() *PodBunchInfo {
 	defaultPodBunch := ji.DefaultPodBunchID()
 	if _, found := ji.PodBunches[defaultPodBunch]; !found {
 		policy := &scheduling.BunchPolicySpec{}
+		if !ji.ContainsBunchPolicy() {
+			policy.BunchSize = ptr.To(ji.MinAvailable)
+		}
 		if ji.PodGroup != nil && ji.PodGroup.Spec.NetworkTopology != nil {
 			policy.NetworkTopology = ji.PodGroup.Spec.NetworkTopology.DeepCopy()
 		}

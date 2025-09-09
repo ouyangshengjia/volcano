@@ -17,6 +17,7 @@
 package allocate
 
 import (
+	"fmt"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -370,8 +371,12 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 		}
 
 		// check if the task with its spec has already predicates failed
-		if job.TaskHasFitErrors(task) {
-			klog.V(5).Infof("Task %s with role spec %s has already predicated failed, skip", task.Name, task.TaskRole)
+		if job.TaskHasFitErrors(podBunch.UID, task) {
+			msg := fmt.Sprintf("Task %s with role spec %s has already predicated failed, skip", task.Name, task.TaskRole)
+			klog.V(5).Infof(msg)
+			fitErrors := api.NewFitErrors()
+			fitErrors.SetError(msg)
+			job.NodesFitErrors[task.UID] = fitErrors
 			continue
 		}
 
@@ -414,7 +419,7 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 			// Assume that all left tasks are allocatable, but can not meet gang-scheduling min member,
 			// so we should break from continuously allocating.
 			// otherwise, should continue to find other allocatable task
-			if job.NeedContinueAllocating() {
+			if job.NeedContinueAllocating(podBunch.UID) {
 				continue
 			} else {
 				break

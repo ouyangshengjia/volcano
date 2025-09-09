@@ -269,10 +269,10 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 					if !bunchWorksheet.Empty() {
 						jobWorksheetCopy.podBunches.Push(podBunch)
 					}
-				}
 
-				if ssn.JobReady(job) {
-					break
+					if ssn.JobReady(job) {
+						break
+					}
 				}
 			}
 			// reset the podBunches to initial status
@@ -346,7 +346,7 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 
 		for _, hyperNode := range hyperNodes {
 			// Clone podBunchWorksheet and rest podBunch's fit err to make sure it's a clean cache when everytime filter a hyperNode and do not affect each other between hyperNodes.
-			job.ResetPodBunchFitErr(podBunch)
+			job.ResetPodBunchFitErr(podBunch.UID)
 			podBunchWorksheetCopy := podBunchWorksheet.Clone()
 
 			klog.V(3).InfoS("Try to allocate resource for tasks in podBunch", "job", podBunch.Job,
