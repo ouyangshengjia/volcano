@@ -7,23 +7,30 @@ import (
 	"volcano.sh/volcano/pkg/scheduler/framework"
 )
 
-type Decision struct {
+type Recorder struct {
 	jobDecisions      map[api.JobID]string
 	podBunchDecisions map[api.JobID]map[string]map[api.BunchID]string
+
+	podBunchStatusSnapshot map[api.JobID]map[api.BunchID]*PodBunchStatus
 }
 
-func NewDecision() *Decision {
-	return &Decision{
-		jobDecisions:      make(map[api.JobID]string),
-		podBunchDecisions: make(map[api.JobID]map[string]map[api.BunchID]string),
+type PodBunchStatus struct {
+	AllocatedHyperNode string
+}
+
+func NewRecorder() *Recorder {
+	return &Recorder{
+		jobDecisions:           make(map[api.JobID]string),
+		podBunchDecisions:      make(map[api.JobID]map[string]map[api.BunchID]string),
+		podBunchStatusSnapshot: make(map[api.JobID]map[api.BunchID]*PodBunchStatus),
 	}
 }
 
-func (d *Decision) SaveJobDecision(job api.JobID, hyperNodeForJob string) {
+func (d *Recorder) SaveJobDecision(job api.JobID, hyperNodeForJob string) {
 	d.jobDecisions[job] = hyperNodeForJob
 }
 
-func (d *Decision) SavePodBunchDecision(job api.JobID, hyperNodeForJob string, podBunch api.BunchID, hyperNodeForPodBunch string) {
+func (d *Recorder) SavePodBunchDecision(job api.JobID, hyperNodeForJob string, podBunch api.BunchID, hyperNodeForPodBunch string) {
 	if d.podBunchDecisions[job] == nil {
 		d.podBunchDecisions[job] = make(map[string]map[api.BunchID]string)
 	}
@@ -33,7 +40,7 @@ func (d *Decision) SavePodBunchDecision(job api.JobID, hyperNodeForJob string, p
 	d.podBunchDecisions[job][hyperNodeForJob][podBunch] = hyperNodeForPodBunch
 }
 
-func (d *Decision) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo, hyperNodes api.HyperNodeInfoMap) {
+func (d *Recorder) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo, hyperNodes api.HyperNodeInfoMap) {
 	hyperNodeForJob := d.jobDecisions[job.UID]
 	if hyperNodeForJob == "" {
 		return
@@ -59,6 +66,28 @@ func (d *Decision) UpdateDecisionToJob(ssn *framework.Session, job *api.JobInfo,
 				"old", podBunch.AllocatedHyperNode, "new", allocatedHyperNode)
 			podBunch.AllocatedHyperNode = allocatedHyperNode
 			ssn.RecordPodBunchUpdate(podBunch)
+		}
+	}
+}
+
+func (d *Recorder) SnapshotPodBunchStatus(job *api.JobInfo, worksheet *JobWorksheet) {
+	result := make(map[api.BunchID]*PodBunchStatus)
+	for bunchID := range worksheet.podBunchWorksheets {
+		if podBunch, found := job.PodBunches[bunchID]; found {
+			result[bunchID] = &PodBunchStatus{AllocatedHyperNode: podBunch.AllocatedHyperNode}
+		}
+	}
+	d.podBunchStatusSnapshot[job.UID] = result
+}
+
+func (d *Recorder) RecoverPodBunchStatus(job *api.JobInfo) {
+	snapshot, ok := d.podBunchStatusSnapshot[job.UID]
+	if !ok {
+		return
+	}
+	for bunchID, status := range snapshot {
+		if podBunch, found := job.PodBunches[bunchID]; found {
+			podBunch.AllocatedHyperNode = status.AllocatedHyperNode
 		}
 	}
 }

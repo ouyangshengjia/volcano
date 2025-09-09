@@ -39,7 +39,7 @@ type Action struct {
 	// jobUID -> hyperNodeName -> score
 	hyperNodeScoresByJob map[string]map[string]float64
 
-	decision *Decision
+	recorder *Recorder
 }
 
 func New() *Action {
@@ -74,7 +74,7 @@ func (alloc *Action) Execute(ssn *framework.Session) {
 	// 5. use ssn.NodeOrderFn to judge the best node and assign it to T
 
 	alloc.session = ssn
-	alloc.decision = NewDecision()
+	alloc.recorder = NewRecorder()
 	actx := alloc.buildAllocateContext()
 	klog.V(3).Infof("Try to allocate resource to %d Queues", actx.queues.Len())
 	alloc.allocateResourcesNew(actx)

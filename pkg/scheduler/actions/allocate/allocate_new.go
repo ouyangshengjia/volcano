@@ -198,7 +198,7 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 			stmt := alloc.allocateForJob(job, jobWorksheet, ssn.HyperNodes[framework.ClusterTopHyperNode])
 			if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
 				stmt.Commit()
-				alloc.decision.UpdateDecisionToJob(ssn, job, ssn.HyperNodes)
+				alloc.recorder.UpdateDecisionToJob(ssn, job, ssn.HyperNodes)
 
 				// There are still left tasks that need to be allocated when min available < replicas, put the job back
 				if !jobWorksheet.Empty() {
@@ -238,6 +238,8 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 		return nil
 	}
 
+	alloc.recorder.SnapshotPodBunchStatus(job, jobWorksheet)
+
 	hyperNodeGradients := ssn.HyperNodeGradientForJobFn(job, hyperNodeToAllocate)
 	for gradient, hyperNodes := range hyperNodeGradients {
 		stmtBackup := make(map[string]*framework.Statement)    // backup the statement after the job is allocated to a hyperNode
@@ -257,8 +259,6 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 				podBunch := jobWorksheetCopy.podBunches.Pop().(*api.PodBunchInfo)
 				bunchWorksheet := jobWorksheetCopy.podBunchWorksheets[podBunch.UID]
 
-				klog.V(3).InfoS("Try to allocate resource for podBunch", "job", podBunch.Job,
-					"podBunch", podBunch.UID, "allocatedHyperNode", podBunch.AllocatedHyperNode, "taskNum", bunchWorksheet.tasks.Len())
 				stmt, allocationScore := alloc.allocateForPodBunch(podBunch, bunchWorksheet, hyperNode)
 
 				if stmt != nil && len(stmt.Operations()) > 0 {
@@ -274,6 +274,8 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 					break
 				}
 			}
+			// reset the podBunches to initial status
+			alloc.recorder.RecoverPodBunchStatus(job)
 
 			mergedStmt := framework.SaveOperations(stmtList...)
 			if len(mergedStmt.Operations()) == 0 {
@@ -313,7 +315,7 @@ func (alloc *Action) allocateForJob(job *api.JobInfo, jobWorksheet *JobWorksheet
 		// inherit the remains worksheet after allocate to the best hyperNode
 		jobWorksheet.ShallowCopyFrom(jobWorksheetsBackup[bestHyperNode])
 
-		alloc.decision.SaveJobDecision(job.UID, bestHyperNode)
+		alloc.recorder.SaveJobDecision(job.UID, bestHyperNode)
 		klog.V(3).InfoS("Allocate job to hyperNode success", "job", job.UID, "hyperNode", bestHyperNode)
 
 		return finalStmt
@@ -331,6 +333,9 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 		klog.V(4).InfoS("Empty podBunch worksheet", "job", podBunch.Job, "podBunch", podBunch.UID)
 		return nil, 0
 	}
+
+	klog.V(3).InfoS("Try to allocate resource for podBunch", "job", podBunch.Job,
+		"podBunch", podBunch.UID, "allocatedHyperNode", podBunch.AllocatedHyperNode, "taskNum", podBunchWorksheet.tasks.Len())
 
 	hyperNodeGradients := ssn.HyperNodeGradientForPodBunchFn(podBunch, hyperNodeForJob)
 	for gradient, hyperNodes := range hyperNodeGradients {
@@ -360,25 +365,29 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 			continue // try next gradient
 		}
 
+		// select the best solution
 		bestHyperNode, bestScore, err := alloc.selectBestHyperNodeForPodBunch(totalNodeScores, podBunch)
 		if err != nil {
 			klog.ErrorS(err, "Cannot find best hyper node for podBunch", "podBunch", podBunch.UID, "gradient", gradient)
 			return nil, 0
 		}
 
-		// recover the stmt
+		// recover the stmt and update podBunch's allocatedHyperNode field
 		bestStmt := stmtBackup[bestHyperNode]
 		finalStmt := framework.NewStatement(ssn)
 		if err = finalStmt.RecoverOperations(bestStmt); err != nil {
 			klog.ErrorS(err, "Failed to recover operations", "podBunch", podBunch.UID, "hyperNode", bestHyperNode)
 			return nil, 0
 		}
+		newAllocatedHyperNode := ssn.HyperNodes.GetLCAHyperNode(podBunch.AllocatedHyperNode, bestHyperNode)
+		podBunch.AllocatedHyperNode = newAllocatedHyperNode
 
 		// inherit the remains worksheet after allocate to the best hyperNode
 		podBunchWorksheet.ShallowCopyFrom(podBunchWorksheetsBackup[bestHyperNode])
 
-		alloc.decision.SavePodBunchDecision(podBunch.Job, hyperNodeForJob.Name, podBunch.UID, bestHyperNode)
-		klog.V(3).InfoS("Allocate podBunch to hyperNode success", "podBunch", podBunch.UID, "hyperNode", bestHyperNode, "score", bestScore)
+		alloc.recorder.SavePodBunchDecision(podBunch.Job, hyperNodeForJob.Name, podBunch.UID, newAllocatedHyperNode)
+		klog.V(3).InfoS("Allocate podBunch to hyperNode success", "podBunch", podBunch.UID,
+			"hyperNode", bestHyperNode, "score", bestScore, "newAllocatedHyperNode", newAllocatedHyperNode)
 
 		return finalStmt, bestScore
 	}
