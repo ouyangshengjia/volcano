@@ -89,134 +89,18 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 		klog.V(5).Infof("Leaving networkTopologyAware plugin ...")
 	}()
 	nta.hyperNodesTier.init(ssn.HyperNodesTiers)
-	hyperNodeFn := func(podBunch *api.PodBunchInfo, hyperNodes map[string][]*api.NodeInfo) (map[string]float64, error) {
-		hyperNodeScores := make(map[string]float64)
 
-		if podBunch.AllocatedHyperNode == "" {
-			return hyperNodeScores, nil
-		}
-		// The job still has remaining tasks to be scheduled, calculate score based on the tier of LCAHyperNode between the hyperNode and jobAllocatedHyperNode.
-		var maxScore float64 = -1
-		scoreToHyperNodes := map[float64][]string{}
-		for hyperNode := range hyperNodes {
-			score := nta.networkTopologyAwareScore(hyperNode, podBunch.AllocatedHyperNode, ssn.HyperNodes)
-			score *= float64(nta.weight)
-			hyperNodeScores[hyperNode] = score
-			if score >= maxScore {
-				maxScore = score
-				scoreToHyperNodes[maxScore] = append(scoreToHyperNodes[maxScore], hyperNode)
-			}
-		}
-		// Calculate score based on the number of tasks scheduled for the job when max score of hyperNode has more than one.
-		if len(scoreToHyperNodes[maxScore]) > 1 {
-			candidateHyperNodes := scoreToHyperNodes[maxScore]
-			for _, hyperNode := range candidateHyperNodes {
-				taskNumScore := nta.scoreWithTaskNum(hyperNode, podBunch.Tasks, ssn.RealNodesList)
-				taskNumScore *= float64(nta.weight)
-				hyperNodeScores[hyperNode] += taskNumScore
-			}
-		}
+	ssn.AddHyperNodeOrderFn(nta.Name(), func(podBunch *api.PodBunchInfo, hyperNodes map[string][]*api.NodeInfo) (map[string]float64, error) {
+		return nta.HyperNodeOrderFn(ssn, podBunch, hyperNodes)
+	})
 
-		klog.V(4).Infof("networkTopologyAware hyperNode score is: %v", hyperNodeScores)
-		return hyperNodeScores, nil
-	}
-
-	nodeFn := func(task *api.TaskInfo, nodes []*api.NodeInfo) (map[string]float64, error) {
-		nodeScores := make(map[string]float64)
-
-		job := ssn.Jobs[task.Job]
-		podBunch := job.PodBunches[job.TaskToPodBunch[task.UID]]
-
-		hardMode, _ := podBunch.IsHardTopologyMode()
-		if hardMode {
-			return nodeScores, nil
-		}
-
-		jobAllocatedHyperNode := task.JobAllocatedHyperNode
-		if jobAllocatedHyperNode == "" {
-			return nodeScores, nil
-		}
-		// Calculate score based on LCAHyperNode tier.
-		var maxScore float64 = -1
-		scoreToNodes := map[float64][]string{}
-		for _, node := range nodes {
-			hyperNode := util.FindHyperNodeForNode(node.Name, ssn.RealNodesList, ssn.HyperNodesTiers, ssn.HyperNodesSetByTier)
-			score := nta.networkTopologyAwareScore(hyperNode, jobAllocatedHyperNode, ssn.HyperNodes)
-			score *= float64(nta.weight)
-			nodeScores[node.Name] = score
-			if score >= maxScore {
-				maxScore = score
-				scoreToNodes[maxScore] = append(scoreToNodes[maxScore], node.Name)
-			}
-		}
-		// Calculate score based on the number of tasks scheduled for the job when max score of node has more than one.
-		if len(scoreToNodes[maxScore]) > 1 {
-			candidateNodes := scoreToNodes[maxScore]
-			for _, node := range candidateNodes {
-				hyperNode := util.FindHyperNodeForNode(node, ssn.RealNodesList, ssn.HyperNodesTiers, ssn.HyperNodesSetByTier)
-				taskNumScore := nta.scoreWithTaskNum(hyperNode, podBunch.Tasks, ssn.RealNodesList)
-				taskNumScore *= float64(nta.weight)
-				nodeScores[node] += taskNumScore
-			}
-		}
-
-		klog.V(4).Infof("networkTopologyAware node score is: %v", nodeScores)
-		return nodeScores, nil
-	}
-
-	ssn.AddHyperNodeOrderFn(nta.Name(), hyperNodeFn)
-	ssn.AddBatchNodeOrderFn(nta.Name(), nodeFn)
-
-	hyperNodeGradientFn := func(hyperNode *api.HyperNodeInfo, highestAllowedTier int, allocatedHyperNode string) ([][]*api.HyperNodeInfo, error) {
-		enqueued := set.New[string]()
-		var processQueue []*api.HyperNodeInfo
-
-		searchRoot, err := getSearchRoot(ssn.HyperNodes, hyperNode, highestAllowedTier, allocatedHyperNode)
-		if err != nil {
-			return nil, fmt.Errorf("getSearchRoot failed: %w", err)
-		}
-
-		processQueue = append(processQueue, searchRoot)
-		enqueued.Insert(searchRoot.Name)
-
-		eligibleHyperNodes := make(map[int][]*api.HyperNodeInfo)
-		for len(processQueue) > 0 {
-			// pop one hyperNode from queue
-			current := processQueue[0]
-			processQueue = processQueue[1:]
-
-			if current.Tier() <= highestAllowedTier {
-				eligibleHyperNodes[current.Tier()] = append(eligibleHyperNodes[current.Tier()], current)
-			}
-
-			// push children hyperNode into queue
-			for child := range current.Children {
-				if enqueued.Has(child) {
-					continue
-				}
-				processQueue = append(processQueue, ssn.HyperNodes[child])
-				enqueued.Insert(child)
-			}
-		}
-
-		// organize hyperNode gradients by tiers in ascending order
-		var tiers []int
-		for tier := range eligibleHyperNodes {
-			tiers = append(tiers, tier)
-		}
-		sort.Ints(tiers)
-
-		var result [][]*api.HyperNodeInfo
-		for _, tier := range tiers {
-			result = append(result, eligibleHyperNodes[tier])
-		}
-
-		return result, nil
-	}
+	ssn.AddBatchNodeOrderFn(nta.Name(), func(task *api.TaskInfo, nodes []*api.NodeInfo) (map[string]float64, error) {
+		return nta.batchNodeOrderFn(ssn, task, nodes)
+	})
 
 	ssn.AddHyperNodeGradientForJobFn(nta.Name(), func(job *api.JobInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
 		if hardMode, highestAllowedTier := job.IsHardTopologyMode(); hardMode {
-			result, err := hyperNodeGradientFn(hyperNode, highestAllowedTier, job.AllocatedHyperNode)
+			result, err := nta.hyperNodeGradientFn(ssn, hyperNode, highestAllowedTier, job.AllocatedHyperNode)
 			if err != nil {
 				klog.ErrorS(err, "build hyperNode gradient fail", "job", job.UID, "hyperNode", hyperNode.Name,
 					"highestAllowedTier", highestAllowedTier, "allocatedHyperNode", job.AllocatedHyperNode)
@@ -226,12 +110,13 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 		}
 		return [][]*api.HyperNodeInfo{{hyperNode}}
 	})
+
 	ssn.AddHyperNodeGradientForPodBunchFn(nta.Name(), func(podBunch *api.PodBunchInfo, hyperNode *api.HyperNodeInfo) [][]*api.HyperNodeInfo {
 		if job, found := ssn.Jobs[podBunch.Job]; found && !job.ContainsBunchPolicy() {
 			return [][]*api.HyperNodeInfo{{hyperNode}} // it is unnecessary to try child hyperNode when there is no actual podBunch
 		}
 		if hardMode, highestAllowedTier := podBunch.IsHardTopologyMode(); hardMode {
-			result, err := hyperNodeGradientFn(hyperNode, highestAllowedTier, podBunch.AllocatedHyperNode)
+			result, err := nta.hyperNodeGradientFn(ssn, hyperNode, highestAllowedTier, podBunch.AllocatedHyperNode)
 			if err != nil {
 				klog.ErrorS(err, "build hyperNode gradient fail", "podBunch", podBunch.UID, "hyperNode", hyperNode.Name,
 					"highestAllowedTier", highestAllowedTier, "allocatedHyperNode", podBunch.AllocatedHyperNode)
@@ -241,6 +126,128 @@ func (nta *networkTopologyAwarePlugin) OnSessionOpen(ssn *framework.Session) {
 		}
 		return [][]*api.HyperNodeInfo{{hyperNode}}
 	})
+}
+
+func (nta *networkTopologyAwarePlugin) HyperNodeOrderFn(ssn *framework.Session, podBunch *api.PodBunchInfo, hyperNodes map[string][]*api.NodeInfo) (map[string]float64, error) {
+	hyperNodeScores := make(map[string]float64)
+
+	if podBunch.AllocatedHyperNode == "" {
+		return hyperNodeScores, nil
+	}
+	// The job still has remaining tasks to be scheduled, calculate score based on the tier of LCAHyperNode between the hyperNode and jobAllocatedHyperNode.
+	var maxScore float64 = -1
+	scoreToHyperNodes := map[float64][]string{}
+	for hyperNode := range hyperNodes {
+		score := nta.networkTopologyAwareScore(hyperNode, podBunch.AllocatedHyperNode, ssn.HyperNodes)
+		score *= float64(nta.weight)
+		hyperNodeScores[hyperNode] = score
+		if score >= maxScore {
+			maxScore = score
+			scoreToHyperNodes[maxScore] = append(scoreToHyperNodes[maxScore], hyperNode)
+		}
+	}
+	// Calculate score based on the number of tasks scheduled for the job when max score of hyperNode has more than one.
+	if len(scoreToHyperNodes[maxScore]) > 1 {
+		candidateHyperNodes := scoreToHyperNodes[maxScore]
+		for _, hyperNode := range candidateHyperNodes {
+			taskNumScore := nta.scoreWithTaskNum(hyperNode, podBunch.Tasks, ssn.RealNodesList)
+			taskNumScore *= float64(nta.weight)
+			hyperNodeScores[hyperNode] += taskNumScore
+		}
+	}
+
+	klog.V(4).Infof("networkTopologyAware hyperNode score is: %v", hyperNodeScores)
+	return hyperNodeScores, nil
+}
+
+func (nta *networkTopologyAwarePlugin) batchNodeOrderFn(ssn *framework.Session, task *api.TaskInfo, nodes []*api.NodeInfo) (map[string]float64, error) {
+	nodeScores := make(map[string]float64)
+
+	job := ssn.Jobs[task.Job]
+	podBunch := job.PodBunches[job.TaskToPodBunch[task.UID]]
+
+	hardMode, _ := podBunch.IsHardTopologyMode()
+	if hardMode {
+		return nodeScores, nil
+	}
+
+	jobAllocatedHyperNode := task.JobAllocatedHyperNode
+	if jobAllocatedHyperNode == "" {
+		return nodeScores, nil
+	}
+	// Calculate score based on LCAHyperNode tier.
+	var maxScore float64 = -1
+	scoreToNodes := map[float64][]string{}
+	for _, node := range nodes {
+		hyperNode := util.FindHyperNodeForNode(node.Name, ssn.RealNodesList, ssn.HyperNodesTiers, ssn.HyperNodesSetByTier)
+		score := nta.networkTopologyAwareScore(hyperNode, jobAllocatedHyperNode, ssn.HyperNodes)
+		score *= float64(nta.weight)
+		nodeScores[node.Name] = score
+		if score >= maxScore {
+			maxScore = score
+			scoreToNodes[maxScore] = append(scoreToNodes[maxScore], node.Name)
+		}
+	}
+	// Calculate score based on the number of tasks scheduled for the job when max score of node has more than one.
+	if len(scoreToNodes[maxScore]) > 1 {
+		candidateNodes := scoreToNodes[maxScore]
+		for _, node := range candidateNodes {
+			hyperNode := util.FindHyperNodeForNode(node, ssn.RealNodesList, ssn.HyperNodesTiers, ssn.HyperNodesSetByTier)
+			taskNumScore := nta.scoreWithTaskNum(hyperNode, podBunch.Tasks, ssn.RealNodesList)
+			taskNumScore *= float64(nta.weight)
+			nodeScores[node] += taskNumScore
+		}
+	}
+
+	klog.V(4).Infof("networkTopologyAware node score is: %v", nodeScores)
+	return nodeScores, nil
+}
+
+func (nta *networkTopologyAwarePlugin) hyperNodeGradientFn(ssn *framework.Session, hyperNode *api.HyperNodeInfo, highestAllowedTier int, allocatedHyperNode string) ([][]*api.HyperNodeInfo, error) {
+	enqueued := set.New[string]()
+	var processQueue []*api.HyperNodeInfo
+
+	searchRoot, err := getSearchRoot(ssn.HyperNodes, hyperNode, highestAllowedTier, allocatedHyperNode)
+	if err != nil {
+		return nil, fmt.Errorf("getSearchRoot failed: %w", err)
+	}
+
+	processQueue = append(processQueue, searchRoot)
+	enqueued.Insert(searchRoot.Name)
+
+	eligibleHyperNodes := make(map[int][]*api.HyperNodeInfo)
+	for len(processQueue) > 0 {
+		// pop one hyperNode from queue
+		current := processQueue[0]
+		processQueue = processQueue[1:]
+
+		if current.Tier() <= highestAllowedTier {
+			eligibleHyperNodes[current.Tier()] = append(eligibleHyperNodes[current.Tier()], current)
+		}
+
+		// push children hyperNode into queue
+		for child := range current.Children {
+			if enqueued.Has(child) {
+				continue
+			}
+			processQueue = append(processQueue, ssn.HyperNodes[child])
+			enqueued.Insert(child)
+		}
+	}
+
+	// organize hyperNode gradients by tiers in ascending order
+	var tiers []int
+	for tier := range eligibleHyperNodes {
+		tiers = append(tiers, tier)
+	}
+	sort.Ints(tiers)
+
+	var result [][]*api.HyperNodeInfo
+	for _, tier := range tiers {
+		result = append(result, eligibleHyperNodes[tier])
+	}
+
+	return result, nil
 }
 
 // getSearchRoot returns the intersection of hyperNodeAvailable and hyperNodeHighestAllowed
@@ -292,7 +299,7 @@ func getHighestAllowedHyperNode(hyperNodes api.HyperNodeInfoMap, highestAllowedT
 	return highestAllowedHyperNode, nil
 }
 
-func (bp *networkTopologyAwarePlugin) OnSessionClose(ssn *framework.Session) {
+func (nta *networkTopologyAwarePlugin) OnSessionClose(ssn *framework.Session) {
 }
 
 // networkTopologyAwareScore use the best fit polices during scheduling.
