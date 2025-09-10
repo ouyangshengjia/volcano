@@ -373,7 +373,7 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 		// check if the task with its spec has already predicates failed
 		if job.TaskHasFitErrors(podBunch.UID, task) {
 			msg := fmt.Sprintf("Task %s with role spec %s has already predicated failed, skip", task.Name, task.TaskRole)
-			klog.V(5).Infof(msg)
+			klog.V(5).Info(msg)
 			fitErrors := api.NewFitErrors()
 			fitErrors.SetError(msg)
 			job.NodesFitErrors[task.UID] = fitErrors
