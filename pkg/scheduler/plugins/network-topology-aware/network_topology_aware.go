@@ -307,6 +307,9 @@ func (nta *networkTopologyAwarePlugin) OnSessionClose(ssn *framework.Session) {
 // Goals:
 // - The tier of LCAHyperNode of the hyperNode and the job allocatedHyperNode should be as low as possible.
 func (nta *networkTopologyAwarePlugin) networkTopologyAwareScore(hyperNodeName, jobAllocatedHyperNode string, hyperNodeMap api.HyperNodeInfoMap) float64 {
+	if hyperNodeName == "" || jobAllocatedHyperNode == "" {
+		return ZeroScore
+	}
 	if hyperNodeName == jobAllocatedHyperNode {
 		return BaseScore
 	}
@@ -334,7 +337,7 @@ func (nta *networkTopologyAwarePlugin) scoreWithTaskNum(hyperNodeName string, ta
 
 func (nta *networkTopologyAwarePlugin) scoreHyperNodeWithTier(tier int) float64 {
 	// Use tier to calculate scores and map the original score to the range between 0 and 1.
-	if nta.minTier == nta.maxTier {
+	if nta.minTier == nta.maxTier || nta.maxTier < tier {
 		return ZeroScore
 	}
 	return float64(nta.maxTier-tier) / float64(nta.maxTier-nta.minTier)
