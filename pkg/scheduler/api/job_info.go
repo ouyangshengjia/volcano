@@ -1198,9 +1198,6 @@ func (ji *JobInfo) deleteTaskFromPodBunch(ti *TaskInfo) {
 	bunchID := ji.TaskToPodBunch[ti.UID]
 	if podBunch, found := ji.PodBunches[bunchID]; found {
 		podBunch.deleteTask(ti)
-		if len(podBunch.Tasks) == 0 && podBunch.UID != ji.DefaultPodBunchID() {
-			delete(ji.PodBunches, bunchID)
-		}
 	}
 
 	delete(ji.TaskToPodBunch, ti.UID)
