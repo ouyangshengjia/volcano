@@ -137,10 +137,7 @@ func PrioritizeNodes(task *api.TaskInfo, nodes []*api.NodeInfo, batchFn api.Batc
 }
 
 // PrioritizeHyperNodes returns a map whose key is hyperNode's score and value are corresponding hyperNodes
-// it accumulates two parts score:
-// 1.node level scores of each hyperNode in NodeOrder extension.
-// 2.hyperNode level scores scored in HyperNodeOrder extension.
-func PrioritizeHyperNodes(candidateHyperNodes map[string][]*api.NodeInfo, nodeScoresInHyperNode map[string]float64, podBunch *api.PodBunchInfo, fn api.HyperNodeOrderMapFn) (map[float64][]string, error) {
+func PrioritizeHyperNodes(candidateHyperNodes map[string][]*api.NodeInfo, podBunch *api.PodBunchInfo, fn api.HyperNodeOrderMapFn) (map[float64][]string, error) {
 	hyperNodesScoreMap := make(map[string]float64)
 	mapScores, err := fn(podBunch, candidateHyperNodes)
 	if err != nil {
@@ -153,12 +150,6 @@ func PrioritizeHyperNodes(candidateHyperNodes map[string][]*api.NodeInfo, nodeSc
 			klog.V(5).InfoS("Add plugin score at hypeNode", "podBunch", podBunch.UID, "pluginName", pluginName, "hyperNodeName", hyperNode, "score", score)
 			hyperNodesScoreMap[hyperNode] += score
 		}
-	}
-
-	// accumulate node scores in NodeOrder and hyperNode score itself as the final score of each hyperNode.
-	for hyperNodeName, score := range nodeScoresInHyperNode {
-		klog.V(5).InfoS("Add node level scores to final hyperNode score", "podBunch", podBunch.UID, "hyperNodeName", hyperNodeName, "score", score)
-		hyperNodesScoreMap[hyperNodeName] += score
 	}
 
 	hyperNodeScores := make(map[float64][]string)

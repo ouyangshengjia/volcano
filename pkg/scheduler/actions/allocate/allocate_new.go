@@ -211,7 +211,7 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 			tasks, tasksExist := actx.tasksNoHardTopology[job.UID]
 			if pbExist && tasksExist {
 				klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "taskNum", tasks.Len())
-				stmt, _ := alloc.allocateResourcesForTasks(podBunch, tasks, framework.ClusterTopHyperNode)
+				stmt := alloc.allocateResourcesForTasks(podBunch, tasks, framework.ClusterTopHyperNode)
 				// There are still left tasks that need to be allocated when min available < replicas, put the job back
 				if tasks.Len() > 0 {
 					jobs.Push(job)
@@ -342,7 +342,6 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 	for gradient, hyperNodes := range hyperNodeGradients {
 		stmtBackup := make(map[string]*framework.Statement)             // backup the statement after the podBunch is allocated to a hyperNode
 		podBunchWorksheetsBackup := make(map[string]*PodBunchWorksheet) // backup the podBunch worksheet after the podBunch is allocated to a hyperNode
-		totalNodeScores := make(map[string]float64)                     // save the total node score when the podBunch is allocated to a hyperNode
 
 		for _, hyperNode := range hyperNodes {
 			// Clone podBunchWorksheet and rest podBunch's fit err to make sure it's a clean cache when everytime filter a hyperNode and do not affect each other between hyperNodes.
@@ -351,23 +350,22 @@ func (alloc *Action) allocateForPodBunch(podBunch *api.PodBunchInfo, podBunchWor
 
 			klog.V(3).InfoS("Try to allocate resource for tasks in podBunch", "job", podBunch.Job,
 				"podBunch", podBunch.UID, "taskNum", podBunchWorksheetCopy.tasks.Len(), "hyperNode", hyperNode.Name)
-			stmt, totalNodeScore := alloc.allocateResourcesForTasks(podBunch, podBunchWorksheetCopy.tasks, hyperNode.Name)
+			stmt := alloc.allocateResourcesForTasks(podBunch, podBunchWorksheetCopy.tasks, hyperNode.Name)
 
 			if stmt != nil && len(stmt.Operations()) > 0 {
 				stmtBackup[hyperNode.Name] = framework.SaveOperations(stmt)      // backup successful solution
 				podBunchWorksheetsBackup[hyperNode.Name] = podBunchWorksheetCopy // backup remains tasks
-				totalNodeScores[hyperNode.Name] = totalNodeScore                 // save the total node score of current hyperNode
 				stmt.Discard()                                                   // dry run in every hyperNode
 			}
 		}
 
-		if len(totalNodeScores) == 0 {
+		if len(stmtBackup) == 0 {
 			klog.V(5).InfoS("Find solution for podBunch fail", "podBunch", podBunch.UID, "gradient", gradient)
 			continue // try next gradient
 		}
 
 		// select the best solution
-		bestHyperNode, bestScore, err := alloc.selectBestHyperNodeForPodBunch(totalNodeScores, podBunch)
+		bestHyperNode, bestScore, err := alloc.selectBestHyperNodeForPodBunch(stmtBackup, podBunch)
 		if err != nil {
 			klog.ErrorS(err, "Cannot find best hyper node for podBunch", "podBunch", podBunch.UID, "gradient", gradient)
 			return nil, 0
@@ -418,18 +416,18 @@ func (alloc *Action) selectBestHyperNodeForJob(podBunchesAllocationScores map[st
 
 // selectBestHyperNodeForPodBunch return the best hyperNode for the podBunch,
 // it will score and select the best hyperNode among all available hyperNodes.
-func (alloc *Action) selectBestHyperNodeForPodBunch(totalNodeScores map[string]float64, podBunch *api.PodBunchInfo) (string, float64, error) {
-	if len(totalNodeScores) <= 0 {
+func (alloc *Action) selectBestHyperNodeForPodBunch(stmts map[string]*framework.Statement, podBunch *api.PodBunchInfo) (string, float64, error) {
+	if len(stmts) <= 0 {
 		return "", 0, fmt.Errorf("no solution found for podBunch %s", podBunch.UID)
 	}
 
 	ssn := alloc.session
 	candidateHyperNodeGroups := make(map[string][]*api.NodeInfo)
-	for hyperNode := range totalNodeScores {
+	for hyperNode := range stmts {
 		candidateHyperNodeGroups[hyperNode] = ssn.RealNodesList[hyperNode]
 	}
 
-	hyperNodeScores, err := util.PrioritizeHyperNodes(candidateHyperNodeGroups, totalNodeScores, podBunch, ssn.HyperNodeOrderMapFn)
+	hyperNodeScores, err := util.PrioritizeHyperNodes(candidateHyperNodeGroups, podBunch, ssn.HyperNodeOrderMapFn)
 	if err != nil {
 		return "", 0, fmt.Errorf("prioritize hyperNodes for podBunch %s fail: %w", podBunch.UID, err)
 	}

@@ -194,7 +194,7 @@ func (alloc *Action) allocateResources(queues *util.PriorityQueue, jobsMap map[a
 				pendingTasks[job.UID] = tasksQueue
 			}
 		} else {
-			stmt, _ = alloc.allocateResourcesForTasks(job.PodBunches[api.BunchID(job.UID)], tasks, framework.ClusterTopHyperNode)
+			stmt = alloc.allocateResourcesForTasks(job.PodBunches[api.BunchID(job.UID)], tasks, framework.ClusterTopHyperNode)
 			// There are still left tasks that need to be allocated when min available < replicas, put the job back
 			if tasks.Len() > 0 {
 				jobs.Push(job)
@@ -249,7 +249,7 @@ func (alloc *Action) allocateResourceForTasksWithTopology(tasks *util.PriorityQu
 			tasksQueue := tasks.Clone()
 			job.ResetFitErr()
 			klog.V(3).InfoS("Try to allocate resource for job in hyperNode", "jobName", job.UID, "hyperNodeName", hyperNodeName, "tier", tier)
-			stmt, _ := alloc.allocateResourcesForTasks(job.PodBunches[api.BunchID(job.UID)], tasksQueue, hyperNodeName)
+			stmt := alloc.allocateResourcesForTasks(job.PodBunches[api.BunchID(job.UID)], tasksQueue, hyperNodeName)
 			if stmt == nil {
 				klog.V(4).InfoS("Cannot allocate resources for job with network topology constrains", "jobName", job.UID, "hyperNodeName", hyperNodeName, "tier", tier)
 				continue
@@ -315,7 +315,7 @@ func (alloc *Action) selectBestHyperNode(jobStmts map[string]*framework.Statemen
 			candidateHyperNodeGroups[hyperNodeName] = ssn.RealNodesList[hyperNodeName]
 		}
 
-		hyperNodeScores, err := util.PrioritizeHyperNodes(candidateHyperNodeGroups, alloc.hyperNodeScoresByJob[string(job.UID)], nil, ssn.HyperNodeOrderMapFn)
+		hyperNodeScores, err := util.PrioritizeHyperNodes(candidateHyperNodeGroups, nil, ssn.HyperNodeOrderMapFn)
 		if err != nil {
 			klog.V(3).ErrorS(err, "Failed to allocate resource for job", "jobName", job.UID)
 			return nil, bestHyperNodeName
@@ -345,7 +345,7 @@ func (alloc *Action) selectBestHyperNode(jobStmts map[string]*framework.Statemen
 	return finalStmt, bestHyperNodeName
 }
 
-func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks *util.PriorityQueue, hyperNode string) (*framework.Statement, float64) {
+func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks *util.PriorityQueue, hyperNode string) *framework.Statement {
 	ssn := alloc.session
 
 	job := ssn.Jobs[podBunch.Job]
@@ -353,12 +353,11 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 	nodes, exist := ssn.RealNodesList[hyperNode]
 	if !exist || len(nodes) == 0 {
 		klog.V(4).InfoS("There is no node in hyperNode", "job", job.UID, "hyperNode", hyperNode)
-		return nil, 0
+		return nil
 	}
 
 	stmt := framework.NewStatement(ssn)
 	ph := util.NewPredicateHelper()
-	totalNodeScore := 0.0
 
 	// For TopologyNetworkSoftMode
 	jobNewAllocatedHyperNode := job.PodGroup.GetAnnotations()[api.JobAllocatedHyperNode]
@@ -430,12 +429,10 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 			task.JobAllocatedHyperNode = jobNewAllocatedHyperNode
 		}
 
-		bestNode, highestScore := alloc.prioritizeNodes(ssn, task, predicateNodes)
+		bestNode, _ := alloc.prioritizeNodes(ssn, task, predicateNodes)
 		if bestNode == nil {
 			continue
 		}
-
-		totalNodeScore += highestScore
 
 		if err := alloc.allocateResourcesForTask(stmt, task, bestNode, job); err != nil {
 			klog.ErrorS(err, "Allocate resources for task fail", "task", task.Name)
@@ -451,14 +448,14 @@ func (alloc *Action) allocateResourcesForTasks(podBunch *api.PodBunchInfo, tasks
 	if ssn.PodBunchReady(job, podBunch) {
 		klog.V(3).InfoS("PodBunch ready, return statement", "job", job.UID, "podBunch", podBunch.UID)
 		updateJobAllocatedHyperNode(job, jobNewAllocatedHyperNode)
-		return stmt, totalNodeScore
+		return stmt
 	} else if ssn.PodBunchPipelined(job, podBunch) {
 		klog.V(3).InfoS("PodBunch pipelined, return statement", "job", job.UID, "podBunch", podBunch.UID)
-		return stmt, totalNodeScore
+		return stmt
 	}
 
 	stmt.Discard()
-	return nil, 0
+	return nil
 }
 
 // getJobNewAllocatedHyperNode Obtain the newly allocated hyperNode for the job in soft topology mode
