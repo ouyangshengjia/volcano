@@ -1562,7 +1562,7 @@ func (sc *SchedulerCache) RecordJobStatusEvent(job *schedulingapi.JobInfo, updat
 }
 
 // UpdateJobStatus update the status of job and its tasks.
-func (sc *SchedulerCache) UpdateJobStatus(job *schedulingapi.JobInfo, updatePGStatus, updatePGAnnotations bool) (*schedulingapi.JobInfo, error) {
+func (sc *SchedulerCache) UpdateJobStatus(job *schedulingapi.JobInfo, updatePGStatus, updatePGAnnotations, updateJobInfo bool) (*schedulingapi.JobInfo, error) {
 	if updatePGStatus || updatePGAnnotations {
 		if updatePGAnnotations {
 			sc.updateJobAnnotations(job)
@@ -1573,6 +1573,9 @@ func (sc *SchedulerCache) UpdateJobStatus(job *schedulingapi.JobInfo, updatePGSt
 		}
 		job.PodGroup = pg
 	}
+	if updateJobInfo {
+		sc.updateJobInfo(job)
+	}
 	sc.RecordJobStatusEvent(job, updatePGStatus)
 
 	return job, nil
@@ -1581,6 +1584,18 @@ func (sc *SchedulerCache) UpdateJobStatus(job *schedulingapi.JobInfo, updatePGSt
 func (sc *SchedulerCache) updateJobAnnotations(job *schedulingapi.JobInfo) {
 	sc.Mutex.Lock()
 	sc.Jobs[job.UID].PodGroup.GetAnnotations()[schedulingapi.JobAllocatedHyperNode] = job.PodGroup.GetAnnotations()[schedulingapi.JobAllocatedHyperNode]
+	sc.Mutex.Unlock()
+}
+
+func (sc *SchedulerCache) updateJobInfo(job *schedulingapi.JobInfo) {
+	sc.Mutex.Lock()
+	jobInCache := sc.Jobs[job.UID]
+	jobInCache.AllocatedHyperNode = job.AllocatedHyperNode
+	for bunchId, bunchInCache := range jobInCache.PodBunches {
+		if bunch, found := job.PodBunches[bunchId]; found {
+			bunchInCache.AllocatedHyperNode = bunch.AllocatedHyperNode
+		}
+	}
 	sc.Mutex.Unlock()
 }
 
