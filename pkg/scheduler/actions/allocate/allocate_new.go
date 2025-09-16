@@ -228,12 +228,13 @@ func (alloc *Action) allocateResourcesNew(actx *allocateContext) {
 			if pbExist && tasksExist {
 				klog.V(3).InfoS("Try to allocate resource", "queue", queue.Name, "job", job.UID, "taskNum", tasks.Len())
 				stmt := alloc.allocateResourcesForTasks(podBunch, tasks, framework.ClusterTopHyperNode)
-				// There are still left tasks that need to be allocated when min available < replicas, put the job back
-				if tasks.Len() > 0 {
-					jobs.Push(job)
-				}
 				if stmt != nil && ssn.JobReady(job) { // do not commit stmt when job is pipelined
 					stmt.Commit()
+
+					// There are still left tasks that need to be allocated when min available < replicas, put the job back
+					if tasks.Len() > 0 {
+						jobs.Push(job)
+					}
 				}
 			} else {
 				klog.ErrorS(nil, "Can not find default podBunch or tasks for job", "job", job.UID,
