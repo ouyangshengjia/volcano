@@ -66,6 +66,7 @@ import (
 	cpuinformerv1 "volcano.sh/apis/pkg/client/informers/externalversions/nodeinfo/v1alpha1"
 	vcinformerv1 "volcano.sh/apis/pkg/client/informers/externalversions/scheduling/v1beta1"
 	topologyinformerv1alpha1 "volcano.sh/apis/pkg/client/informers/externalversions/topology/v1alpha1"
+
 	"volcano.sh/volcano/cmd/scheduler/app/options"
 	"volcano.sh/volcano/pkg/features"
 	schedulingapi "volcano.sh/volcano/pkg/scheduler/api"
@@ -1583,20 +1584,25 @@ func (sc *SchedulerCache) UpdateJobStatus(job *schedulingapi.JobInfo, updatePGSt
 
 func (sc *SchedulerCache) updateJobAnnotations(job *schedulingapi.JobInfo) {
 	sc.Mutex.Lock()
-	sc.Jobs[job.UID].PodGroup.GetAnnotations()[schedulingapi.JobAllocatedHyperNode] = job.PodGroup.GetAnnotations()[schedulingapi.JobAllocatedHyperNode]
-	sc.Mutex.Unlock()
+	defer sc.Mutex.Unlock()
+
+	if jobInCache, ok := sc.Jobs[job.UID]; ok {
+		jobInCache.PodGroup.GetAnnotations()[schedulingapi.JobAllocatedHyperNode] = job.PodGroup.GetAnnotations()[schedulingapi.JobAllocatedHyperNode]
+	}
 }
 
 func (sc *SchedulerCache) updateJobInfo(job *schedulingapi.JobInfo) {
 	sc.Mutex.Lock()
-	jobInCache := sc.Jobs[job.UID]
-	jobInCache.AllocatedHyperNode = job.AllocatedHyperNode
-	for bunchId, bunchInCache := range jobInCache.PodBunches {
-		if bunch, found := job.PodBunches[bunchId]; found {
-			bunchInCache.AllocatedHyperNode = bunch.AllocatedHyperNode
+	defer sc.Mutex.Unlock()
+
+	if jobInCache, ok := sc.Jobs[job.UID]; ok {
+		jobInCache.AllocatedHyperNode = job.AllocatedHyperNode
+		for bunchId, bunchInCache := range jobInCache.PodBunches {
+			if bunch, found := job.PodBunches[bunchId]; found {
+				bunchInCache.AllocatedHyperNode = bunch.AllocatedHyperNode
+			}
 		}
 	}
-	sc.Mutex.Unlock()
 }
 
 // UpdateQueueStatus update the status of queue.

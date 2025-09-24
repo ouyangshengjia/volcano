@@ -434,9 +434,11 @@ func (ssn *Session) recoverAllocatedHyperNode(job *api.JobInfo, hyperNodeSet set
 				break
 			}
 		}
-		job.AllocatedHyperNode = lca
-		ssn.MarkJobDirty(job.UID)
-		klog.V(3).InfoS("update job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", lca)
+		if job.AllocatedHyperNode != lca {
+			job.AllocatedHyperNode = lca
+			ssn.MarkJobDirty(job.UID)
+			klog.V(3).InfoS("update job allocated hyperNode", "job", job.UID, "AllocatedHyperNode", lca)
+		}
 	}
 }
 
