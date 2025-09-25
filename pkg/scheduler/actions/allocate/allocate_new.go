@@ -120,6 +120,12 @@ func (alloc *Action) buildAllocateContext() *allocateContext {
 			continue
 		}
 
+		if !ssn.HyperNodesReadyToSchedule && job.ContainsNetworkTopology() {
+			klog.V(4).Infof("Job <%s/%s> Queue <%s> skip allocate, reason: hyperNodes are not ready for scheduling",
+				job.Namespace, job.Name, job.Queue)
+			continue
+		}
+
 		worksheet := alloc.organizeJobWorksheet(job)
 		if worksheet.Empty() {
 			continue

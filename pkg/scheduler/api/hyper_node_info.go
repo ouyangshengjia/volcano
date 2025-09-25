@@ -57,12 +57,14 @@ type HyperNodeInfoMap map[string]*HyperNodeInfo
 
 // NewHyperNodesInfo initializes a new HyperNodesInfo instance.
 func NewHyperNodesInfo(lister listerv1.NodeLister) *HyperNodesInfo {
+	ready := new(atomic.Bool)
+	ready.Store(true)
 	return &HyperNodesInfo{
 		hyperNodes:          make(map[string]*HyperNodeInfo),
 		hyperNodesSetByTier: make(map[int]sets.Set[string]),
 		realNodesSet:        make(map[string]sets.Set[string]),
 		nodeLister:          lister,
-		ready:               new(atomic.Bool),
+		ready:               ready,
 	}
 }
 

@@ -269,8 +269,8 @@ func openSession(cache cache.Cache) *Session {
 		ssn.TotalResource.Add(n.Allocatable)
 	}
 
-	klog.V(3).Infof("Open Session %v with <%d> Job and <%d> Queues",
-		ssn.UID, len(ssn.Jobs), len(ssn.Queues))
+	klog.V(3).Infof("Open Session %v with <%d> Job and <%d> Queues. HyperNodesReadyToSchedule: %v",
+		ssn.UID, len(ssn.Jobs), len(ssn.Queues), ssn.HyperNodesReadyToSchedule)
 
 	return ssn
 }
