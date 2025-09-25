@@ -232,8 +232,7 @@ func openSession(cache cache.Cache) *Session {
 
 	ssn.HyperNodes = snapshot.HyperNodes
 	ssn.HyperNodesSetByTier = snapshot.HyperNodesSetByTier
-	ssn.RealNodesList = util.GetRealNodesListByHyperNode(snapshot.RealNodesSet, snapshot.Nodes)
-	ssn.RealNodesSet = snapshot.RealNodesSet
+	ssn.RealNodesList, ssn.RealNodesSet = util.GetRealNodesByHyperNode(snapshot.RealNodesSet, snapshot.Nodes)
 	ssn.HyperNodesReadyToSchedule = snapshot.HyperNodesReadyToSchedule
 	ssn.addClusterTopHyperNode(ssn.NodeList)
 	ssn.parseHyperNodesTiers()
