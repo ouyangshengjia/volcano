@@ -446,3 +446,109 @@ func TestRequest_String(t *testing.T) {
 	}
 
 }
+
+func TestHasPod(t *testing.T) {
+	namespace := "testns"
+	taskName := "task1"
+	podName := "pod1"
+
+	tests := []struct {
+		name      string
+		jobinfo   JobInfo
+		pod       *v1.Pod
+		expectRes bool
+	}{
+		{
+			name: "Pod exists",
+			jobinfo: JobInfo{
+				Pods: map[string]map[string]*v1.Pod{
+					taskName: {
+						podName: &v1.Pod{},
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						vcbatchv1.TaskSpecKey: taskName,
+						vcbatchv1.JobVersion:  "1",
+					},
+				},
+			},
+			expectRes: true,
+		},
+		{
+			name: "Pod missing in Pods map",
+			jobinfo: JobInfo{
+				Pods: map[string]map[string]*v1.Pod{
+					taskName: {},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "otherpod",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						vcbatchv1.TaskSpecKey: taskName,
+						vcbatchv1.JobVersion:  "1",
+					},
+				},
+			},
+			expectRes: false,
+		},
+		{
+			name: "TaskName missing in pod annotations",
+			jobinfo: JobInfo{
+				Pods: map[string]map[string]*v1.Pod{},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        podName,
+					Namespace:   namespace,
+					Annotations: map[string]string{vcbatchv1.JobVersion: "1"},
+				},
+			},
+			expectRes: false,
+		},
+		{
+			name: "JobVersion missing in pod annotations",
+			jobinfo: JobInfo{
+				Pods: map[string]map[string]*v1.Pod{},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        podName,
+					Namespace:   namespace,
+					Annotations: map[string]string{vcbatchv1.TaskSpecKey: taskName},
+				},
+			},
+			expectRes: false,
+		},
+		{
+			name: "TaskName not found in jobinfo.Pods",
+			jobinfo: JobInfo{
+				Pods: map[string]map[string]*v1.Pod{},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						vcbatchv1.TaskSpecKey: "otherTask",
+						vcbatchv1.JobVersion:  "1",
+					},
+				},
+			},
+			expectRes: false,
+		},
+	}
+
+	for i, tt := range tests {
+		got := tt.jobinfo.HasPod(tt.pod)
+		if got != tt.expectRes {
+			t.Errorf("case %d (%s): expected %v, got %v", i, tt.name, tt.expectRes, got)
+		}
+	}
+}
